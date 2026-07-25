@@ -1,123 +1,162 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/supabase/server";
-import { asetSchema } from "@/lib/validators/aset";
-import { calcDepresiasiBulanan } from "@/lib/aset/calc-depresiasi";
+import { asetSchema, type AsetInput } from "@/lib/validators/aset";
 
-type Params = { id: string };
+/* =========================
+   PARAM VALIDATION
+========================= */
 
-type AsetRow = {
-  id_aset: number;
-  nama: string;
-  nilai_perolehan: number;
-  tanggal_perolehan: string;
-  umur_manfaat: number;
+const paramSchema = z.object({
+  id: z.string(),
+});
+
+type Context = {
+  params: Promise<{ id: string }>;
 };
 
 /* =========================
-   PUT: Update Aset
+   GET BY ID
 ========================= */
-export async function PUT(
-  req: Request,
-  { params }: { params: Promise<Params> },
+
+export async function GET(
+  _req: NextRequest,
+  ctx: Context,
 ): Promise<NextResponse> {
-  const { id } = await params;
-  const asetId = Number(id);
+  const params = await ctx.params;
 
-  if (!Number.isInteger(asetId)) {
-    return NextResponse.json({ error: "ID aset tidak valid" }, { status: 400 });
-  }
-
-  const body: unknown = await req.json();
-  const parsed = asetSchema.safeParse(body);
+  const parsed = paramSchema.safeParse(params);
 
   if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
   }
 
-  const { nama, nilai_perolehan, tanggal_perolehan, umur_manfaat } =
-    parsed.data;
-
-  const { data: existing, error: existingError } = await db
-    .from("aset")
-    .select("id_aset")
-    .eq("id_aset", asetId)
-    .single();
-
-  if (existingError || !existing) {
-    return NextResponse.json(
-      { error: "Aset tidak ditemukan" },
-      { status: 404 },
-    );
-  }
+  const id: number = Number(parsed.data.id);
 
   const { data, error } = await db
     .from("aset")
-    .update({
-      nama,
-      nilai_perolehan,
-      tanggal_perolehan,
-      umur_manfaat,
-    })
-    .eq("id_aset", asetId)
-    .select("id_aset,nama,nilai_perolehan,tanggal_perolehan,umur_manfaat")
+    .select("*")
+    .eq("id_aset", id)
     .single();
-
-  if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Gagal update aset" },
-      { status: 500 },
-    );
-  }
-
-  const row: AsetRow = {
-    id_aset: data.id_aset as number,
-    nama: data.nama as string,
-    nilai_perolehan: Number(data.nilai_perolehan),
-    tanggal_perolehan: data.tanggal_perolehan as string,
-    umur_manfaat: data.umur_manfaat as number,
-  };
-
-  return NextResponse.json({
-    ...row,
-    depresiasi_bulanan: calcDepresiasiBulanan(
-      row.nilai_perolehan,
-      row.umur_manfaat,
-    ),
-  });
-}
-
-/* =========================
-   DELETE: Delete Aset
-========================= */
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Promise<Params> },
-): Promise<NextResponse> {
-  const { id } = await params;
-  const asetId = Number(id);
-
-  if (!Number.isInteger(asetId)) {
-    return NextResponse.json({ error: "ID aset tidak valid" }, { status: 400 });
-  }
-
-  const { data: existing, error: existingError } = await db
-    .from("aset")
-    .select("id_aset")
-    .eq("id_aset", asetId)
-    .single();
-
-  if (existingError || !existing) {
-    return NextResponse.json(
-      { error: "Aset tidak ditemukan" },
-      { status: 404 },
-    );
-  }
-
-  const { error } = await db.from("aset").delete().eq("id_aset", asetId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json(data);
+}
+
+/* =========================
+   PUT
+========================= */
+
+export async function PUT(
+  req: NextRequest,
+  ctx: Context,
+): Promise<NextResponse> {
+  try {
+    const params = await ctx.params;
+
+    const parsedParams = paramSchema.safeParse(params);
+
+    if (!parsedParams.success) {
+      return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+    }
+
+    const id: number = Number(parsedParams.data.id);
+
+    const body: unknown = await req.json();
+
+    const parsedBody = asetSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Data tidak valid" }, { status: 400 });
+    }
+
+    const input: AsetInput = parsedBody.data;
+
+    /* =========================
+       HITUNG ULANG
+    ========================= */
+
+    const nominal: number = input.nilai_perolehan;
+
+    const ppn: number = nominal * 0.11;
+    const pph23: number = nominal * 0.02;
+
+    const total: number = nominal + ppn - pph23;
+
+    /* =========================
+       ANTI MINUS
+    ========================= */
+
+    if (total <= 0) {
+      return NextResponse.json({ error: "Total tidak valid" }, { status: 400 });
+    }
+
+    const depresiasi: number = nominal / input.umur_manfaat;
+
+    /* =========================
+       UPDATE
+    ========================= */
+
+    const { data, error } = await db
+      .from("aset")
+      .update({
+        nama: input.nama,
+        nilai_perolehan: nominal,
+        tanggal_perolehan: input.tanggal_perolehan,
+        umur_manfaat: input.umur_manfaat,
+        depresiasi_bulanan: depresiasi,
+        ppn,
+        pph23,
+        total,
+      })
+      .eq("id_aset", id)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "Gagal update aset");
+    }
+
+    return NextResponse.json({
+      message: "Aset berhasil diupdate",
+      data,
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
+  }
+}
+
+/* =========================
+   DELETE
+========================= */
+
+export async function DELETE(
+  _req: NextRequest,
+  ctx: Context,
+): Promise<NextResponse> {
+  const params = await ctx.params;
+
+  const parsed = paramSchema.safeParse(params);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+  }
+
+  const id: number = Number(parsed.data.id);
+
+  const { error } = await db.from("aset").delete().eq("id_aset", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    message: "Aset berhasil dihapus",
+  });
 }

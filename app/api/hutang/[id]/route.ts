@@ -4,6 +4,39 @@ import { hutangSchema } from "@/lib/validators/hutang";
 
 type Params = { id: string };
 
+/* =========================
+   GET: Detail Hutang
+========================= */
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<Params> },
+): Promise<NextResponse> {
+  const { id } = await params;
+  const id_hutang = Number(id);
+
+  if (!Number.isInteger(id_hutang)) {
+    return NextResponse.json(
+      { error: "ID hutang tidak valid" },
+      { status: 400 },
+    );
+  }
+
+  const { data, error } = await db
+    .from("hutang")
+    .select("id_hutang,supplier,no_invoice,tanggal,jatuh_tempo,nilai,status")
+    .eq("id_hutang", id_hutang)
+    .single();
+
+  if (error || !data) {
+    return NextResponse.json(
+      { error: "Hutang tidak ditemukan" },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json(data);
+}
+
 export async function PUT(
   req: Request,
   { params }: { params: Promise<Params> },

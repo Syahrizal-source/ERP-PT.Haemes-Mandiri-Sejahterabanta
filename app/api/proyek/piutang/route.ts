@@ -1,36 +1,170 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import { db } from "@/lib/supabase/server";
-import { ProyekPiutang } from "@/types/proyek";
-import { validatePositive } from "@/lib/validator";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const idTagihan = searchParams.get("id_tagihan");
+import { PiutangProyekAccounting, StatusPiutangProyek } from "@/types/proyek";
 
-  let query = db.from("proyek_piutang").select("*");
+import {
+  piutangProyekSchema,
+  validatePiutangProyek,
+} from "@/lib/validators/piutang-proyek";
 
-  if (idTagihan) {
-    query = query.eq("id_tagihan", idTagihan);
+import { postPiutangProyek } from "@/lib/accounting/postPiutangProyek";
+
+/* =========================
+   GET
+========================= */
+
+export async function GET(req: NextRequest): Promise<Response> {
+  try {
+    const { searchParams } = new URL(req.url);
+    const idProyek = searchParams.get("id_proyek");
+
+    const customer = searchParams.get("customer");
+
+    const status = searchParams.get("status") as StatusPiutangProyek | null;
+
+    let query = db
+      .from("v_piutang_proyek")
+      .select("*")
+      .order("tanggal", { ascending: false });
+
+    if (idProyek && idProyek.trim() !== "") {
+      query = query.eq("id_proyek", idProyek);
+    }
+
+    if (customer && customer.trim() !== "") {
+      query = query.ilike("customer", `%${customer}%`);
+    }
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    const result: PiutangProyekAccounting[] = (data ??
+      []) as PiutangProyekAccounting[];
+
+    return NextResponse.json(result);
+  } catch (error: unknown) {
+    return NextResponse.json(
+      {
+        error: (error as Error).message,
+      },
+      {
+        status: 500,
+      },
+    );
   }
-
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json(data);
 }
 
-export async function POST(req: NextRequest) {
+/* =========================
+   POST
+========================= */
+
+export async function POST(req: NextRequest): Promise<Response> {
   try {
-    const body: Omit<ProyekPiutang, "id"> = await req.json();
-    validatePositive(body.nilai, "Nilai Piutang");
-    validatePositive(body.sisa, "Sisa Piutang");
+    const body: unknown = await req.json();
 
-    const { error } = await db.from("proyek_piutang").insert(body);
-    if (error) throw error;
+    const parsed = piutangProyekSchema.parse(body);
 
-    return NextResponse.json({ message: "Piutang ditambahkan" });
-  } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    validatePiutangProyek(parsed);
+
+    /* =========================
+       RUMUS ANTI MINUS
+    ========================= */
+
+    const saldo = Number(parsed.nilai_piutang) - Number(parsed.penerimaan);
+
+    if (saldo < 0) {
+      return NextResponse.json(
+        {
+          error: "Saldo piutang tidak boleh minus",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    /* =========================
+       POST JURNAL
+    ========================= */
+
+    const idJurnal = await postPiutangProyek(parsed);
+
+    /* =========================
+       INSERT DATABASE
+    ========================= */
+
+    const insertData = {
+      id_proyek: parsed.id_proyek,
+      tanggal: parsed.tanggal,
+
+      customer: parsed.customer,
+
+      tanggal_pembayaran: parsed.tanggal_pembayaran,
+
+      nilai_piutang: Number(parsed.nilai_piutang),
+
+      penerimaan: Number(parsed.penerimaan),
+
+      keterangan: parsed.keterangan,
+
+      status: parsed.status,
+
+      id_jurnal: idJurnal,
+
+      is_posted: true,
+    };
+
+    const { data, error } = await db
+      .from("piutang_proyek")
+      .insert(insertData)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        message: "Piutang proyek berhasil disimpan",
+
+        data,
+      },
+      {
+        status: 201,
+      },
+    );
+  } catch (error: unknown) {
+    return NextResponse.json(
+      {
+        error: (error as Error).message,
+      },
+      {
+        status: 400,
+      },
+    );
   }
 }

@@ -2,30 +2,39 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
 import { validatePositive } from "@/lib/validator";
 
-type Params = { params: { id: string } };
+type Context = {
+  params: Promise<{ id: string }>;
+};
 
-export async function PUT(req: NextRequest, { params }: Params) {
-  const body = await req.json();
-  if (body.qty !== undefined) validatePositive(body.qty, "Qty");
-  if (body.harga !== undefined) validatePositive(body.harga, "Harga");
+export async function PUT(req: NextRequest, context: Context) {
+  try {
+    const { id } = await context.params;
+    const body = await req.json();
 
-  const { error } = await db
-    .from("proyek_material")
-    .update(body)
-    .eq("id", params.id);
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    if (body.qty !== undefined) validatePositive(body.qty, "Qty");
+    if (body.harga !== undefined) validatePositive(body.harga, "Harga");
 
-  return NextResponse.json({ message: "Material diupdate" });
+    const { error } = await db
+      .from("proyek_material")
+      .update(body)
+      .eq("id", id);
+
+    if (error) throw error;
+
+    return NextResponse.json({ message: "Material diupdate" });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
 }
 
-export async function DELETE(_: NextRequest, { params }: Params) {
-  const { error } = await db
-    .from("proyek_material")
-    .delete()
-    .eq("id", params.id);
-  if (error)
+export async function DELETE(_: NextRequest, context: Context) {
+  const { id } = await context.params;
+
+  const { error } = await db.from("proyek_material").delete().eq("id", id);
+
+  if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   return NextResponse.json({ message: "Material dihapus" });
 }

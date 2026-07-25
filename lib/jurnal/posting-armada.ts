@@ -1,63 +1,119 @@
 import { db } from "@/lib/supabase/server";
-import { getActivePeriode } from "@/lib/periode/get-active";
-import { resolveCOA } from "@/lib/coa/resolve-coa";
 
-export async function postArmadaToJurnal(idArmada: number): Promise<void> {
-  const { data: armada } = await db
+interface ArmadaRow {
+  id: number;
+  tanggal: string;
+  jumlah_tagihan: number;
+  jumlah_uang_jalan: number;
+  bersih: number;
+}
+
+interface PeriodeRow {
+  id_periode: number;
+}
+
+interface CoaRow {
+  id_coa: number;
+}
+
+export async function postArmadaToJurnal(id: number): Promise<void> {
+  const { data: armada, error: armadaError } = await db
     .from("armada")
-    .select("*")
-    .eq("id", idArmada)
-    .single();
-  if (!armada) throw new Error("Armada tidak ditemukan");
+    .select("id, tanggal, jumlah_tagihan, jumlah_uang_jalan, bersih")
+    .eq("id", id)
+    .single<ArmadaRow>();
 
-  const periode = await getActivePeriode();
+  if (armadaError || !armada) {
+    throw new Error("Data armada tidak ditemukan");
+  }
 
-  const pendapatan = Number(armada.jumlah_tagihan);
-  const beban =
-    Number(armada.belanja) +
-    Number(armada.mel) +
-    Number(armada.tambal_ban) +
-    Number(armada.inap_um) +
-    Number(armada.adm);
+  const nominal = Number(armada.jumlah_tagihan);
 
-  const coaKas = await resolveCOA("ARMADA", "KAS");
-  const coaPendapatan = await resolveCOA("ARMADA", "PENDAPATAN");
-  const coaBeban = await resolveCOA("ARMADA", "BEBAN");
+  if (nominal <= 0) {
+    throw new Error("Nominal tidak valid untuk posting");
+  }
 
-  const { data: header } = await db
+  const { data: periode, error: periodeError } = await db
+    .from("periode")
+    .select("id_periode")
+    .eq("status", "OPEN")
+    .single<PeriodeRow>();
+
+  if (periodeError || !periode) {
+    throw new Error("Periode OPEN tidak ditemukan");
+  }
+
+  const { data: coaKas, error: kasError } = await db
+    .from("coa")
+    .select("id_coa")
+    .eq("kode", "11010") // Kas Armada khusus
+    .single<CoaRow>();
+
+  if (kasError || !coaKas) {
+    throw new Error("COA Kas Armada tidak ditemukan");
+  }
+
+  const { data: coaPendapatan, error: pendError } = await db
+    .from("coa")
+    .select("id_coa")
+    .eq("kode", "4000")
+    .single<CoaRow>();
+
+  if (pendError || !coaPendapatan) {
+    throw new Error("COA Pendapatan tidak ditemukan");
+  }
+
+  const noBukti = `ARM-${armada.id}-${Date.now()}`;
+
+  const { data: jurnal, error: jurnalError } = await db
     .from("jurnal")
     .insert({
       tanggal: armada.tanggal,
-      no_bukti: armada.kode_transaksi,
-      keterangan: `ARMADA ${armada.no_polisi}`,
-      id_periode: periode.id_periode,
+      no_bukti: noBukti,
       sumber: "ARMADA",
+      keterangan: `Posting Armada ID ${armada.id}`,
+      id_periode: periode.id_periode,
     })
     .select("id_jurnal")
-    .single();
+    .single<{ id_jurnal: number }>();
 
-  if (!header) throw new Error("Gagal buat jurnal armada");
+  if (jurnalError || !jurnal) {
+    throw new Error("Gagal membuat jurnal");
+  }
 
-  const details = [
+  const totalDebit = nominal;
+  const totalKredit = nominal;
+
+  const { error: detailError } = await db.from("jurnal_detail").insert([
     {
-      id_jurnal: header.id_jurnal,
-      id_coa: coaKas,
-      debit: pendapatan,
+      id_jurnal: jurnal.id_jurnal,
+      id_coa: coaKas.id_coa,
+      debit: totalDebit,
       kredit: 0,
+      id_armada: armada.id,
     },
     {
-      id_jurnal: header.id_jurnal,
-      id_coa: coaPendapatan,
+      id_jurnal: jurnal.id_jurnal,
+      id_coa: coaPendapatan.id_coa,
       debit: 0,
-      kredit: pendapatan,
+      kredit: totalKredit,
+      id_armada: armada.id,
     },
-    { id_jurnal: header.id_jurnal, id_coa: coaBeban, debit: beban, kredit: 0 },
-    { id_jurnal: header.id_jurnal, id_coa: coaKas, debit: 0, kredit: beban },
-  ];
+  ]);
 
-  const totalDebit = details.reduce((s, d) => s + d.debit, 0);
-  const totalKredit = details.reduce((s, d) => s + d.kredit, 0);
-  if (totalDebit !== totalKredit) throw new Error("Jurnal tidak balance");
+  if (detailError) {
+    throw new Error("Gagal membuat jurnal detail");
+  }
 
-  await db.from("jurnal_detail").insert(details);
+  // ✅ AUTO COST CONTROL (dari uang jalan)
+  const totalBeban = Number(armada.jumlah_uang_jalan);
+
+  if (totalBeban > 0) {
+    await db.from("cost_control_armada").insert({
+      id_armada: armada.id,
+      tanggal: armada.tanggal,
+      jenis_biaya: "Biaya Operasional",
+      nominal: totalBeban,
+    });
+  }
 }

@@ -1,27 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { validatePositive } from "@/lib/validator";
 
-type Params = { params: { id: string } };
+type Context = {
+  params: Promise<{ id: string }>;
+};
 
-export async function PUT(req: NextRequest, { params }: Params) {
-  const body = await req.json();
-  if (body.nilai !== undefined) validatePositive(body.nilai, "Nilai Hutang");
+/* =========================
+   PUT UPDATE HUTANG
+========================= */
+export async function PUT(req: NextRequest, context: Context) {
+  try {
+    const { id } = await context.params;
+    const body = await req.json();
 
-  const { error } = await db
-    .from("proyek_hutang")
-    .update(body)
-    .eq("id", params.id);
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const { error } = await db.from("proyek_hutang").update(body).eq("id", id);
 
-  return NextResponse.json({ message: "Hutang diupdate" });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      message: "Hutang berhasil diupdate",
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
+  }
 }
 
-export async function DELETE(_: NextRequest, { params }: Params) {
-  const { error } = await db.from("proyek_hutang").delete().eq("id", params.id);
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+/* =========================
+   DELETE HUTANG
+========================= */
+export async function DELETE(_: NextRequest, context: Context) {
+  try {
+    const { id } = await context.params;
 
-  return NextResponse.json({ message: "Hutang dihapus" });
+    const { error } = await db.from("proyek_hutang").delete().eq("id", id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      message: "Hutang berhasil dihapus",
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
+  }
 }

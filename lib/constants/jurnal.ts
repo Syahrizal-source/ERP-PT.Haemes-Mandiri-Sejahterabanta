@@ -1,0 +1,18 @@
+export const JURNAL_SUMBER = {
+  // UMUM
+  UMUM: "UMUM",
+  PENYESUAIAN: "PENYESUAIAN",
+  PENUTUP: "PENUTUP",
+
+  // KAS
+  KAS_PROYEK: "KAS_PROYEK",
+  KAS_ARMADA: "KAS_ARMADA",
+  KAS_ALAT_BERAT: "KAS_ALAT_BERAT",
+  KAS_KEBUN_SAWIT: "KAS_KEBUN",
+
+  // MODUL LAIN
+  PAYROLL: "UMUM",
+  PENDAPATAN: "UMUM",
+} as const;
+
+export type JurnalSumber = (typeof JURNAL_SUMBER)[keyof typeof JURNAL_SUMBER];

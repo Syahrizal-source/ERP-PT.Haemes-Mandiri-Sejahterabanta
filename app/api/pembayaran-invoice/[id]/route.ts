@@ -1,163 +1,179 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/supabase/server";
-import { pembayaranInvoiceSchema } from "@/lib/validators/pembayaran-invoice";
-import { calcInvoiceStatus } from "@/lib/invoice/calc-status";
+import {
+  pembayaranInvoiceSchema,
+  type PembayaranInvoiceInput,
+} from "@/lib/validators/pembayaran-invoice";
 
-type Params = { id: string };
+/* =========================
+   PARAM VALIDATION
+========================= */
 
-export async function PUT(
-  req: Request,
-  { params }: { params: Promise<Params> },
+const paramSchema = z.object({
+  id: z.string(),
+});
+
+type Context = {
+  params: Promise<{ id: string }>;
+};
+
+/* =========================
+   GET BY ID
+========================= */
+
+export async function GET(
+  _req: NextRequest,
+  ctx: Context,
 ): Promise<NextResponse> {
-  const { id } = await params;
-  const pembayaranId = Number(id);
+  const params = await ctx.params;
 
-  if (!Number.isInteger(pembayaranId)) {
-    return NextResponse.json(
-      { error: "ID pembayaran tidak valid" },
-      { status: 400 },
-    );
-  }
-
-  const body: unknown = await req.json();
-  const parsed = pembayaranInvoiceSchema.safeParse(body);
+  const parsed = paramSchema.safeParse(params);
 
   if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
   }
 
-  const { tanggal, id_invoice, nominal, keterangan } = parsed.data;
-
-  const { data: existing, error: existingError } = await db
-    .from("pembayaran_invoice")
-    .select("id,nominal,id_invoice")
-    .eq("id", pembayaranId)
-    .single();
-
-  if (existingError || !existing) {
-    return NextResponse.json(
-      { error: "Pembayaran tidak ditemukan" },
-      { status: 404 },
-    );
-  }
-
-  // Total bayar selain row ini
-  const { data: bayarRows } = await db
-    .from("pembayaran_invoice")
-    .select("nominal")
-    .eq("id_invoice", id_invoice)
-    .neq("id", pembayaranId);
-
-  const totalBayarLain = (bayarRows ?? []).reduce(
-    (s: number, r) => s + Number(r.nominal),
-    0,
-  );
-
-  const { data: invoice } = await db
-    .from("invoice")
-    .select("nominal")
-    .eq("id", id_invoice)
-    .single();
-
-  const totalInvoice = Number(invoice?.nominal ?? 0);
-  const totalBayarBaru = totalBayarLain + nominal;
-
-  if (totalBayarBaru > totalInvoice) {
-    return NextResponse.json(
-      { error: "Total pembayaran melebihi nilai invoice" },
-      { status: 400 },
-    );
-  }
+  const id: number = Number(parsed.data.id);
 
   const { data, error } = await db
     .from("pembayaran_invoice")
-    .update({
-      tanggal,
-      id_invoice,
-      nominal,
-      keterangan,
-    })
-    .eq("id", pembayaranId)
-    .select("id,tanggal,id_invoice,nominal,keterangan")
+    .select("*")
+    .eq("id", id)
     .single();
-
-  if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Gagal update pembayaran" },
-      { status: 500 },
-    );
-  }
-
-  const newStatus = calcInvoiceStatus(totalInvoice, totalBayarBaru);
-
-  await db.from("invoice").update({ status: newStatus }).eq("id", id_invoice);
-
-  return NextResponse.json(data);
-}
-
-/* =========================
-   DELETE: Delete Pembayaran
-========================= */
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Promise<Params> },
-): Promise<NextResponse> {
-  const { id } = await params;
-  const pembayaranId = Number(id);
-
-  if (!Number.isInteger(pembayaranId)) {
-    return NextResponse.json(
-      { error: "ID pembayaran tidak valid" },
-      { status: 400 },
-    );
-  }
-
-  const { data: existing, error: existingError } = await db
-    .from("pembayaran_invoice")
-    .select("id,id_invoice,nominal")
-    .eq("id", pembayaranId)
-    .single();
-
-  if (existingError || !existing) {
-    return NextResponse.json(
-      { error: "Pembayaran tidak ditemukan" },
-      { status: 404 },
-    );
-  }
-
-  const id_invoice = existing.id_invoice as number;
-
-  const { error } = await db
-    .from("pembayaran_invoice")
-    .delete()
-    .eq("id", pembayaranId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Recalc status invoice
-  const { data: bayarRows } = await db
-    .from("pembayaran_invoice")
-    .select("nominal")
-    .eq("id_invoice", id_invoice);
+  return NextResponse.json(data);
+}
 
-  const totalBayar = (bayarRows ?? []).reduce(
-    (s: number, r) => s + Number(r.nominal),
-    0,
-  );
+/* =========================
+   PUT
+========================= */
 
-  const { data: invoice } = await db
-    .from("invoice")
-    .select("nominal")
-    .eq("id", id_invoice)
-    .single();
+export async function PUT(
+  req: NextRequest,
+  ctx: Context,
+): Promise<NextResponse> {
+  try {
+    const params = await ctx.params;
 
-  const totalInvoice = Number(invoice?.nominal ?? 0);
+    const parsedParams = paramSchema.safeParse(params);
 
-  const newStatus = calcInvoiceStatus(totalInvoice, totalBayar);
+    if (!parsedParams.success) {
+      return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+    }
 
-  await db.from("invoice").update({ status: newStatus }).eq("id", id_invoice);
+    const id: number = Number(parsedParams.data.id);
 
-  return NextResponse.json({ success: true });
+    const body: unknown = await req.json();
+
+    const parsedBody = pembayaranInvoiceSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Data tidak valid" }, { status: 400 });
+    }
+
+    const input: PembayaranInvoiceInput = parsedBody.data;
+
+    /* =========================
+       HITUNG ULANG
+    ========================= */
+
+    const nominal: number = input.nominal;
+    const ppn: number = nominal * 0.11;
+    const pph23: number = nominal * 0.02;
+
+    const totalPiutang: number = nominal + ppn;
+    const totalBayar: number = totalPiutang - pph23;
+
+    /* =========================
+       ANTI MINUS
+    ========================= */
+
+    if (totalBayar <= 0) {
+      return NextResponse.json({ error: "Total tidak valid" }, { status: 400 });
+    }
+
+    /* =========================
+       VALIDASI INVOICE
+    ========================= */
+
+    const { data: invoiceCheck } = await db
+      .from("invoice")
+      .select("id")
+      .eq("id", input.id_invoice)
+      .single();
+
+    if (!invoiceCheck) {
+      return NextResponse.json(
+        { error: "Invoice tidak ditemukan" },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       UPDATE
+    ========================= */
+
+    const { data, error } = await db
+      .from("pembayaran_invoice")
+      .update({
+        tanggal: input.tanggal,
+        id_invoice: input.id_invoice,
+        nominal,
+        ppn,
+        pph23,
+        total: totalBayar,
+        keterangan: input.keterangan,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "Gagal update");
+    }
+
+    return NextResponse.json({
+      message: "Pembayaran invoice berhasil diupdate",
+      data,
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
+  }
+}
+
+/* =========================
+   DELETE
+========================= */
+
+export async function DELETE(
+  _req: NextRequest,
+  ctx: Context,
+): Promise<NextResponse> {
+  const params = await ctx.params;
+
+  const parsed = paramSchema.safeParse(params);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+  }
+
+  const id: number = Number(parsed.data.id);
+
+  const { error } = await db.from("pembayaran_invoice").delete().eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    message: "Pembayaran invoice berhasil dihapus",
+  });
 }

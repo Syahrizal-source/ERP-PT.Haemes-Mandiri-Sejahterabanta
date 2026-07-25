@@ -1,30 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
+import { TagihanProyekSchema } from "@/lib/validators/tagihanproyek";
 import { validatePositive } from "@/lib/validator";
 
-type Params = { params: { id: string } };
+type Context = {
+  params: Promise<{ id: string }>;
+};
 
-export async function PUT(req: NextRequest, { params }: Params) {
-  const body = await req.json();
-  if (body.nilai !== undefined) validatePositive(body.nilai, "Nilai Tagihan");
+/* ======================
+   UPDATE TAGIHAN
+====================== */
+export async function PUT(req: NextRequest, context: Context) {
+  try {
+    const { id } = await context.params;
+    const payload = TagihanProyekSchema.parse(await req.json());
+    validatePositive(payload.nilai, "Nilai");
 
-  const { error } = await db
-    .from("proyek_tagihan")
-    .update(body)
-    .eq("id", params.id);
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const { error } = await db
+      .from("proyek_tagihan")
+      .update(payload)
+      .eq("id", id);
 
-  return NextResponse.json({ message: "Tagihan diupdate" });
+    if (error) throw error;
+
+    return NextResponse.json({
+      message: "Tagihan berhasil diupdate",
+    });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
 }
 
-export async function DELETE(_: NextRequest, { params }: Params) {
-  const { error } = await db
-    .from("proyek_tagihan")
-    .delete()
-    .eq("id", params.id);
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+/* ======================
+   DELETE TAGIHAN + JURNAL
+====================== */
+export async function DELETE(_: NextRequest, context: Context) {
+  try {
+    const { id } = await context.params;
 
-  return NextResponse.json({ message: "Tagihan dihapus" });
+    // ambil nomor invoice
+    const { data: tagihan } = await db
+      .from("proyek_tagihan")
+      .select("nomor_invoice")
+      .eq("id", id)
+      .single();
+
+    if (!tagihan) {
+      throw new Error("Tagihan tidak ditemukan");
+    }
+
+    // hapus jurnal
+    await db
+      .from("jurnal")
+      .delete()
+      .eq("no_bukti", `INV-${tagihan.nomor_invoice}`);
+
+    // hapus tagihan
+    const { error } = await db.from("proyek_tagihan").delete().eq("id", id);
+
+    if (error) throw error;
+
+    return NextResponse.json({
+      message: "Tagihan & jurnal berhasil dihapus",
+    });
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
 }

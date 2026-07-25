@@ -1,72 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
+import { divisionUpdateSchema } from "@/lib/validators/divisions";
+import { ZodError, z } from "zod";
 
-/* =========================
-   PARAM VALIDATION
-========================= */
-
-const idSchema = z.object({
+const paramSchema = z.object({
   id: z.string().uuid("ID tidak valid"),
 });
 
-/* =========================
-   UPDATE SCHEMA
-========================= */
-
-const updateSchema = z.object({
-  estate_id: z.string().uuid("Estate ID tidak valid").optional(),
-  code: z.string().min(1).max(20).optional(),
-  name: z.string().min(1).max(100).optional(),
-  area_ha: z.coerce.number().min(0, "Luas tidak boleh minus").optional(),
-  is_active: z.boolean().optional(),
-});
-
-type UpdateInput = z.infer<typeof updateSchema>;
-
-/* =========================
-   PUT (UPDATE)
-========================= */
+type Context = {
+  params: Promise<{ id: string }>;
+};
 
 export async function PUT(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const { id } = await context.params;
-
-    const parsedId = idSchema.safeParse({ id });
-
-    if (!parsedId.success) {
-      return NextResponse.json(
-        { errors: parsedId.error.flatten() },
-        { status: 400 },
-      );
-    }
+    const params = await context.params;
+    const parsedParam = paramSchema.parse(params);
 
     const body: unknown = await request.json();
-    const parsedBody = updateSchema.safeParse(body);
-
-    if (!parsedBody.success) {
-      return NextResponse.json(
-        { errors: parsedBody.error.flatten() },
-        { status: 400 },
-      );
-    }
-
-    const input: UpdateInput = parsedBody.data;
+    const parsedBody = divisionUpdateSchema.parse(body);
 
     const { data, error } = await db
       .from("divisions")
       .update({
-        estate_id: input.estate_id,
-        code: input.code,
-        name: input.name,
-        area_ha: input.area_ha,
-        is_active: input.is_active,
+        estate_id: parsedBody.estate_id,
+        code: parsedBody.code,
+        name: parsedBody.name,
+        area_ha: parsedBody.area_ha,
+        is_active: parsedBody.is_active,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id)
+      .eq("id", parsedParam.id)
       .select()
       .single();
 
@@ -75,7 +41,11 @@ export async function PUT(
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch {
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json({ errors: error.issues }, { status: 400 });
+    }
+
     return NextResponse.json(
       { message: "Invalid request body" },
       { status: 400 },
@@ -83,33 +53,34 @@ export async function PUT(
   }
 }
 
-/* =========================
-   DELETE
-========================= */
-
+/* =====================
+   DELETE DIVISION
+===================== */
 export async function DELETE(
-  _request: NextRequest,
-  context: { params: Promise<{ id: string }> },
+  _req: NextRequest,
+  ctx: Context,
 ): Promise<NextResponse> {
-  const { id } = await context.params;
+  const params = await ctx.params;
 
-  const parsedId = idSchema.safeParse({ id });
+  const parsed = paramSchema.safeParse(params);
 
-  if (!parsedId.success) {
+  if (!parsed.success) {
     return NextResponse.json(
-      { errors: parsedId.error.flatten() },
+      { error: "Parameter ID tidak valid" },
       { status: 400 },
     );
   }
 
-  const { error } = await db.from("divisions").delete().eq("id", id);
+  const { error } = await db
+    .from("divisions")
+    .delete()
+    .eq("id", parsed.data.id);
 
   if (error) {
-    return NextResponse.json({ message: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(
-    { message: "Division berhasil dihapus" },
-    { status: 200 },
-  );
+  return NextResponse.json({
+    message: "Division berhasil dihapus",
+  });
 }

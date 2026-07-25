@@ -1,24 +1,43 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { asetSchema } from "@/lib/validators/aset";
 import { calcDepresiasiBulanan } from "@/lib/aset/calc-depresiasi";
+import { postAset } from "@/lib/accounting/postAset";
+import { asetSchema, AsetInput } from "@/lib/validators/aset";
 
-type AsetRow = {
+export type AsetRow = {
   id_aset: number;
   nama: string;
   nilai_perolehan: number;
   tanggal_perolehan: string;
   umur_manfaat: number;
+  depresiasi_bulanan: number;
+  akumulasi_depresiasi: number;
+  nilai_buku: number;
+  last_depresiasi: string | null;
 };
 
 /* =========================
-   GET: List Aset
+   GET ASET
 ========================= */
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
     .from("aset")
-    .select("id_aset,nama,nilai_perolehan,tanggal_perolehan,umur_manfaat")
-    .order("tanggal_perolehan", { ascending: false });
+    .select(
+      `
+    id_aset,
+    nama,
+    nilai_perolehan,
+    tanggal_perolehan,
+    umur_manfaat,
+    depresiasi_bulanan,
+    akumulasi_depresiasi,
+    nilai_buku,
+    last_depresiasi
+  `,
+    )
+    .order("tanggal_perolehan", {
+      ascending: false,
+    });
 
   if (error || !data) {
     return NextResponse.json(
@@ -27,75 +46,89 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const result = data.map((a) => {
-    const row: AsetRow = {
-      id_aset: a.id_aset as number,
-      nama: a.nama as string,
-      nilai_perolehan: Number(a.nilai_perolehan),
-      tanggal_perolehan: a.tanggal_perolehan as string,
-      umur_manfaat: a.umur_manfaat as number,
-    };
-
-    return {
-      ...row,
-      depresiasi_bulanan: calcDepresiasiBulanan(
-        row.nilai_perolehan,
-        row.umur_manfaat,
-      ),
-    };
-  });
+  const result: AsetRow[] = data.map((a) => ({
+    id_aset: Number(a.id_aset),
+    nama: String(a.nama),
+    nilai_perolehan: Number(a.nilai_perolehan),
+    tanggal_perolehan: String(a.tanggal_perolehan),
+    umur_manfaat: Number(a.umur_manfaat),
+    depresiasi_bulanan: Number(a.depresiasi_bulanan ?? 0),
+    akumulasi_depresiasi: Number(a.akumulasi_depresiasi ?? 0),
+    nilai_buku: Number(a.nilai_buku ?? 0),
+    last_depresiasi: a.last_depresiasi ? String(a.last_depresiasi) : null,
+  }));
 
   return NextResponse.json(result);
 }
 
 /* =========================
-   POST: Create Aset
+   POST ASET
 ========================= */
-export async function POST(req: Request): Promise<NextResponse> {
-  const body: unknown = await req.json();
-  const parsed = asetSchema.safeParse(body);
+export async function POST(req: Request) {
+  try {
+    const body: unknown = await req.json();
 
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
+    const parsed = asetSchema.safeParse(body);
 
-  const { nama, nilai_perolehan, tanggal_perolehan, umur_manfaat } =
-    parsed.data;
+    if (!parsed.success) {
+      return Response.json({ error: "Data tidak valid" }, { status: 400 });
+    }
 
-  const { data, error } = await db
-    .from("aset")
-    .insert({
-      nama,
-      nilai_perolehan,
-      tanggal_perolehan,
-      umur_manfaat,
-    })
-    .select("id_aset,nama,nilai_perolehan,tanggal_perolehan,umur_manfaat")
-    .single();
+    const input: AsetInput = parsed.data;
 
-  if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Gagal insert aset" },
-      { status: 500 },
+    const nominal = input.nilai_perolehan;
+
+    const ppn = nominal * 0.11;
+    const pph23 = nominal * 0.02;
+
+    const total = nominal + ppn - pph23;
+
+    if (total <= 0) {
+      return Response.json({ error: "Total tidak valid" }, { status: 400 });
+    }
+
+    const depresiasi = calcDepresiasiBulanan(nominal, input.umur_manfaat);
+
+    const { data, error } = await db
+      .from("aset")
+      .insert({
+        nama: input.nama,
+        nilai_perolehan: nominal,
+        tanggal_perolehan: input.tanggal_perolehan,
+        umur_manfaat: input.umur_manfaat,
+        depresiasi_bulanan: depresiasi,
+        ppn,
+        pph23,
+        total,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message);
+    }
+
+    const jurnalId = await postAset(
+      input.tanggal_perolehan,
+      `AST-${data.id_aset}`,
+      input.nama,
+      nominal,
+      ppn,
+      pph23,
     );
+
+    await db
+      .from("aset")
+      .update({ id_jurnal: jurnalId })
+      .eq("id_aset", data.id_aset);
+
+    return Response.json({
+      message: "Aset berhasil disimpan",
+      data,
+    });
+  } catch (error: unknown) {
+    console.error("ASET ERROR:", error);
+
+    return Response.json({ error: (error as Error).message }, { status: 500 });
   }
-
-  const row: AsetRow = {
-    id_aset: data.id_aset as number,
-    nama: data.nama as string,
-    nilai_perolehan: Number(data.nilai_perolehan),
-    tanggal_perolehan: data.tanggal_perolehan as string,
-    umur_manfaat: data.umur_manfaat as number,
-  };
-
-  return NextResponse.json(
-    {
-      ...row,
-      depresiasi_bulanan: calcDepresiasiBulanan(
-        row.nilai_perolehan,
-        row.umur_manfaat,
-      ),
-    },
-    { status: 201 },
-  );
 }

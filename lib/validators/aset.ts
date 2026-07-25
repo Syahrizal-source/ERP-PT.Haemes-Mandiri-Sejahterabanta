@@ -3,7 +3,7 @@ import { z } from "zod";
 export const asetSchema = z.object({
   nama: z.string().min(1),
   nilai_perolehan: z.number().positive(),
-  tanggal_perolehan: z.string().min(10),
+  tanggal_perolehan: z.string().min(1),
   umur_manfaat: z.number().int().positive(),
 });
 

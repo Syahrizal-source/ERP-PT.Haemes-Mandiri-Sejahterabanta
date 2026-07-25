@@ -5,5 +5,5 @@ export interface JurnalDetailRow {
   debit: number;
   kredit: number;
   id_alat: number | null;
-  id_cost_center: number | null;
+  id_cost_center?: string | null;
 }

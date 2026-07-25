@@ -9,7 +9,7 @@ export const JurnalDetailSchema = z.object({
 export const JurnalSchema = z.object({
   tanggal: z.string().min(10),
   no_bukti: z.string().min(3),
-  sumber: z.enum(["UMUM", "PENYESUAIAN"]),
+  sumber: z.enum(["UMUM", "PENYESUAIAN", "PROYEK", "KAS_PROYEK"]),
   keterangan: z.string().min(3),
   id_periode: z.number().int().positive(),
   details: z.array(JurnalDetailSchema).min(2),

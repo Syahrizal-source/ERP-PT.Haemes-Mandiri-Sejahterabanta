@@ -1,137 +1,227 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { pembayaranInvoiceSchema } from "@/lib/validators/pembayaran-invoice";
-import { calcInvoiceStatus } from "@/lib/invoice/calc-status";
+import {
+  pembayaranInvoiceSchema,
+  type PembayaranInvoiceInput,
+} from "@/lib/validators/pembayaran-invoice";
+import { postPembayaranInvoice } from "@/lib/accounting/postPembayaranInvoice";
 
-type PembayaranRow = {
+/* =========================
+   TYPES
+========================= */
+
+interface Row {
   id: number;
   tanggal: string;
   id_invoice: number;
   nominal: number;
+  ppn: number;
+  pph23: number;
+  total: number;
   keterangan: string;
-};
+}
 
 /* =========================
-   GET: List Pembayaran
+   GET
 ========================= */
+
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
     .from("pembayaran_invoice")
-    .select("id,tanggal,id_invoice,nominal,keterangan")
+    .select("*")
     .order("tanggal", { ascending: false });
 
-  if (error || !data) {
-    return NextResponse.json(
-      { error: "Gagal ambil data pembayaran invoice" },
-      { status: 500 },
-    );
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const result: PembayaranRow[] = data.map((r) => ({
-    id: r.id as number,
-    tanggal: r.tanggal as string,
-    id_invoice: r.id_invoice as number,
-    nominal: Number(r.nominal),
-    keterangan: r.keterangan as string,
-  }));
+  const rows: Row[] = data ?? [];
+
+  /* =========================
+     HITUNG STATUS
+  ========================= */
+
+  const result = await Promise.all(
+    rows.map(async (item) => {
+      const { data: invoice } = await db
+        .from("invoice")
+        .select("nominal")
+        .eq("id", item.id_invoice)
+        .single();
+
+      const nilaiInvoice: number = Number(invoice?.nominal ?? 0);
+
+      const { data: pembayaran } = await db
+        .from("pembayaran_invoice")
+        .select("total")
+        .eq("id_invoice", item.id_invoice);
+
+      const totalBayar: number = (pembayaran ?? []).reduce(
+        (sum, p) => sum + Number(p.total ?? 0),
+        0,
+      );
+
+      let status: "UNPAID" | "PARTIAL" | "PAID";
+
+      if (totalBayar >= nilaiInvoice && nilaiInvoice > 0) status = "PAID";
+      else if (totalBayar > 0) status = "PARTIAL";
+      else status = "UNPAID";
+
+      let keteranganStatus: string;
+
+      if (status === "PAID") keteranganStatus = "Pembayaran Lunas";
+      else if (status === "PARTIAL") keteranganStatus = "Pembayaran Sebagian";
+      else keteranganStatus = "Belum Dibayar";
+
+      return {
+        ...item,
+        status,
+        keterangan_status: keteranganStatus,
+      };
+    }),
+  );
 
   return NextResponse.json(result);
 }
 
-/* =========================
-   POST: Create Pembayaran
-========================= */
-export async function POST(req: Request): Promise<NextResponse> {
-  const body: unknown = await req.json();
-  const parsed = pembayaranInvoiceSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
-
-  const { tanggal, id_invoice, nominal, keterangan } = parsed.data;
-
-  // 1️⃣ Ambil invoice
-  const { data: invoice, error: invoiceError } = await db
+async function updateStatusInvoice(id_invoice: number): Promise<void> {
+  const { data: invoice } = await db
     .from("invoice")
-    .select("id,nominal,status")
+    .select("nominal")
     .eq("id", id_invoice)
     .single();
 
-  if (invoiceError || !invoice) {
-    return NextResponse.json(
-      { error: "Invoice tidak ditemukan" },
-      { status: 404 },
-    );
-  }
+  const nilaiInvoice: number = Number(invoice?.nominal ?? 0);
 
-  const totalInvoice = Number(invoice.nominal);
-
-  // 2️⃣ Hitung total bayar sebelumnya
-  const { data: bayarRows, error: bayarError } = await db
+  const { data: pembayaran } = await db
     .from("pembayaran_invoice")
-    .select("nominal")
+    .select("total")
     .eq("id_invoice", id_invoice);
 
-  if (bayarError) {
-    return NextResponse.json(
-      { error: "Gagal ambil data pembayaran" },
-      { status: 500 },
-    );
-  }
-
-  const totalBayarSebelum = (bayarRows ?? []).reduce(
-    (s: number, r) => s + Number(r.nominal),
+  const totalBayar: number = (pembayaran ?? []).reduce(
+    (sum, p) => sum + Number(p.total ?? 0),
     0,
   );
 
-  const totalBayarBaru = totalBayarSebelum + nominal;
+  let status: "UNPAID" | "PARTIAL" | "PAID";
 
-  if (totalBayarBaru > totalInvoice) {
-    return NextResponse.json(
-      { error: "Total pembayaran melebihi nilai invoice" },
-      { status: 400 },
-    );
-  }
+  if (totalBayar >= nilaiInvoice && nilaiInvoice > 0) status = "PAID";
+  else if (totalBayar > 0) status = "PARTIAL";
+  else status = "UNPAID";
 
-  // 3️⃣ Insert pembayaran
-  const { data, error } = await db
-    .from("pembayaran_invoice")
-    .insert({
-      tanggal,
-      id_invoice,
+  await db.from("invoice").update({ status }).eq("id", id_invoice);
+}
+/* =========================
+   POST
+========================= */
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  try {
+    const body: unknown = await req.json();
+
+    const parsed = pembayaranInvoiceSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Data pembayaran invoice tidak valid" },
+        { status: 400 },
+      );
+    }
+
+    const input: PembayaranInvoiceInput = parsed.data;
+
+    /* =========================
+       HITUNG PAJAK
+    ========================= */
+
+    const nominal: number = input.nominal;
+
+    const ppn: number = nominal * 0.11;
+    const pph23: number = nominal * 0.02;
+
+    // const totalPiutang: number = nominal + ppn;
+    const totalBayar: number = nominal + ppn - pph23;
+
+    /* =========================
+       ANTI MINUS
+    ========================= */
+
+    if (totalBayar <= 0) {
+      return NextResponse.json(
+        { error: "Total pembayaran tidak valid" },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       VALIDASI INVOICE
+    ========================= */
+
+    const { data: invoiceCheck } = await db
+      .from("invoice")
+      .select("id")
+      .eq("id", input.id_invoice)
+      .single();
+
+    if (!invoiceCheck) {
+      return NextResponse.json(
+        { error: "Invoice tidak ditemukan" },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       INSERT
+    ========================= */
+
+    const { data, error } = await db
+      .from("pembayaran_invoice")
+      .insert({
+        tanggal: input.tanggal,
+        id_invoice: input.id_invoice,
+        nominal,
+        ppn,
+        pph23,
+        total: totalBayar,
+        keterangan: input.keterangan,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "Gagal menyimpan pembayaran invoice");
+    }
+
+    /* =========================
+       JURNAL
+    ========================= */
+
+    const jurnalId: number = await postPembayaranInvoice(
+      input.tanggal,
+      `PBY-${data.id}`,
+      input.keterangan,
       nominal,
-      keterangan,
-    })
-    .select("id,tanggal,id_invoice,nominal,keterangan")
-    .single();
+      ppn,
+      pph23,
+    );
 
-  if (error || !data) {
+    await db
+      .from("pembayaran_invoice")
+      .update({ id_jurnal: jurnalId })
+      .eq("id", data.id);
+
+    await updateStatusInvoice(input.id_invoice);
+
+    return NextResponse.json({
+      message: "Pembayaran invoice berhasil",
+      data,
+    });
+  } catch (error: unknown) {
+    console.error("PEMBAYARAN INVOICE ERROR:", error);
+
     return NextResponse.json(
-      { error: error?.message ?? "Gagal insert pembayaran" },
+      { error: (error as Error).message },
       { status: 500 },
     );
   }
-
-  // 4️⃣ Update status invoice
-  const newStatus = calcInvoiceStatus(totalInvoice, totalBayarBaru);
-
-  const { error: statusError } = await db
-    .from("invoice")
-    .update({ status: newStatus })
-    .eq("id", id_invoice);
-
-  if (statusError) {
-    return NextResponse.json({ error: statusError.message }, { status: 500 });
-  }
-
-  const row: PembayaranRow = {
-    id: data.id as number,
-    tanggal: data.tanggal as string,
-    id_invoice: data.id_invoice as number,
-    nominal: Number(data.nominal),
-    keterangan: data.keterangan as string,
-  };
-
-  return NextResponse.json(row, { status: 201 });
 }

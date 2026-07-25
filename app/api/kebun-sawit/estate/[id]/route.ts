@@ -1,29 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
-
-/* =========================
-   PARAM VALIDATION
-========================= */
-
-const idSchema = z.object({
-  id: z.string().uuid("ID tidak valid"),
-});
-
-/* =========================
-   UPDATE SCHEMA
-========================= */
-
-const updateSchema = z.object({
-  region_id: z.string().uuid("Region ID tidak valid").optional(),
-  code: z.string().min(1).max(20).optional(),
-  name: z.string().min(1).max(100).optional(),
-  total_area_ha: z.coerce.number().min(0, "Luas tidak boleh minus").optional(),
-  manager_name: z.string().max(100).optional(),
-  is_active: z.boolean().optional(),
-});
-
-type UpdateInput = z.infer<typeof updateSchema>;
+import {
+  estateIdParamSchema,
+  estateUpdateSchema,
+  type EstateUpdateInput,
+} from "@/lib/validators/estate";
 
 /* =========================
    PUT (UPDATE)
@@ -36,26 +17,25 @@ export async function PUT(
   try {
     const { id } = await context.params;
 
-    const parsedId = idSchema.safeParse({ id });
-
+    const parsedId = estateIdParamSchema.safeParse({ id });
     if (!parsedId.success) {
       return NextResponse.json(
-        { errors: parsedId.error.flatten() },
+        { errors: parsedId.error.issues },
         { status: 400 },
       );
     }
 
     const body: unknown = await request.json();
-    const parsedBody = updateSchema.safeParse(body);
+    const parsedBody = estateUpdateSchema.safeParse(body);
 
     if (!parsedBody.success) {
       return NextResponse.json(
-        { errors: parsedBody.error.flatten() },
+        { errors: parsedBody.error.issues },
         { status: 400 },
       );
     }
 
-    const input: UpdateInput = parsedBody.data;
+    const input: EstateUpdateInput = parsedBody.data;
 
     const { data, error } = await db
       .from("estates")
@@ -95,11 +75,10 @@ export async function DELETE(
 ): Promise<NextResponse> {
   const { id } = await context.params;
 
-  const parsedId = idSchema.safeParse({ id });
-
+  const parsedId = estateIdParamSchema.safeParse({ id });
   if (!parsedId.success) {
     return NextResponse.json(
-      { errors: parsedId.error.flatten() },
+      { errors: parsedId.error.issues },
       { status: 400 },
     );
   }

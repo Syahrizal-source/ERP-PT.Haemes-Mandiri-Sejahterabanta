@@ -1,6 +1,6 @@
 export interface ArmadaRow {
   id: number;
-  user_id: number;
+  // user_id: number;
   tanggal: string;
   kode_transaksi: string;
   no_polisi: string;

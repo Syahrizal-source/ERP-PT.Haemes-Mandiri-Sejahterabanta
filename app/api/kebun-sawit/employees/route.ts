@@ -1,30 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 
-/* =========================
-   ZOD SCHEMA
-========================= */
-
-const employeeSchema = z.object({
-  division_id: z.string().uuid("Division ID tidak valid").nullable().optional(),
-  nik: z.string().min(1).max(50),
-  name: z.string().min(1).max(100),
-  position: z.enum(["MANDOR", "PEMANEN", "PEMUPUK", "PERAWATAN", "LAINNYA"]),
-  npwp: z.string().max(30).optional(),
-  ptkp_status: z.string().max(20).optional(),
-  is_pph21_applicable: z.boolean().optional(),
-  basic_salary: z.coerce
-    .number()
-    .min(0, "Gaji pokok tidak boleh minus")
-    .optional(),
-  is_active: z.boolean().optional(),
-});
-
-type EmployeeInput = z.infer<typeof employeeSchema>;
+import {
+  employeeCreateSchema,
+  EmployeeCreateInput,
+} from "@/lib/validators/employees";
 
 /* =========================
-   GET ALL EMPLOYEES
+   GET EMPLOYEES
 ========================= */
 
 export async function GET(): Promise<NextResponse> {
@@ -41,27 +24,35 @@ export async function GET(): Promise<NextResponse> {
 }
 
 /* =========================
-   POST CREATE EMPLOYEE
+   CREATE EMPLOYEE
 ========================= */
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body: unknown = await request.json();
 
-    const parsed = employeeSchema.safeParse(body);
+    const parsed = employeeCreateSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
-        { errors: parsed.error.flatten() },
+        { errors: parsed.error.issues },
         { status: 400 },
       );
     }
 
-    const input: EmployeeInput = parsed.data;
+    const input: EmployeeCreateInput = parsed.data;
 
     const { data, error } = await db
       .from("employees")
-      .insert(input)
+      .insert({
+        nik: input.nik,
+        name: input.name,
+        position: input.position,
+        division_id: input.division_id,
+        hire_date: input.hire_date,
+        basic_salary: input.basic_salary,
+        is_active: input.is_active ?? true,
+      })
       .select()
       .single();
 
