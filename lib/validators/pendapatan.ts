@@ -1,13 +1,10 @@
 import { z } from "zod";
 
 export const pendapatanSchema = z.object({
-  tanggal: z.string().min(10),
-
-  id_coa: z.number().int().positive(),
-
+  tanggal: z.string(),
+  id_coa: z.number(),
   nominal: z.number().positive(),
-
-  keterangan: z.string().min(1),
+  keterangan: z.string(),
 });
 
 export type PendapatanInput = z.infer<typeof pendapatanSchema>;

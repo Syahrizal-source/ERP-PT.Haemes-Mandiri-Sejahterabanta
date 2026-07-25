@@ -1,203 +1,140 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { JurnalSchema } from "@/schemas/jurnal.schema";
-import { validateBalance } from "@/lib/validators/jurnal";
-import { isPeriodeClosed } from "@/lib/utils/periodelock";
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/supabase/server";
 
-/* ===============================
-   SETUP SUPABASE
-================================ */
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-);
+interface RouteContext {
+  params: Promise<{
+    id: string;
+  }>;
+}
 
-/* ===============================
-   TYPES
-================================ */
-interface Params {
-  id: string;
+interface CoaRow {
+  id_coa: number;
+  kode: string;
+  nama: string;
+}
+
+interface DetailRow {
+  id_detail: number;
+  id_coa: number;
+  debit: number;
+  kredit: number;
+  coa: CoaRow | null;
 }
 
 interface JurnalRow {
-  id_jurnal: string; // BIGINT → string
-  id_periode: string; // BIGINT → string
+  id_jurnal: number;
+  tanggal: string;
+  no_bukti: string;
+  sumber: string;
+  keterangan: string;
+  id_periode: number;
+  is_posted: boolean;
+  jurnal_detail: DetailRow[];
 }
 
-/* ===============================
-   PUT: Update Jurnal
-================================ */
-export async function PUT(req: Request, context: { params: Promise<Params> }) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
-    const id_jurnal: string = id;
 
-    if (!id_jurnal) {
-      return NextResponse.json(
-        { message: "id_jurnal tidak valid" },
-        { status: 400 },
-      );
+    const jurnalId: number = Number(id);
+
+    if (!jurnalId) {
+      return NextResponse.json({ message: "ID tidak valid" }, { status: 400 });
     }
 
-    const body = await req.json();
-    const parsed = JurnalSchema.parse(body);
-
-    // ✅ VALIDASI DEBIT = KREDIT
-    validateBalance(parsed.details);
-
-    /* ===============================
-       Ambil jurnal existing
-    ================================ */
-    const { data: jurnal, error: fetchError } = await supabase
+    const { data: jurnalData, error: jurnalError } = await db
       .from("jurnal")
-      .select("id_jurnal, id_periode")
-      .eq("id_jurnal", id_jurnal)
-      .maybeSingle();
+      .select(
+        `
+        id_jurnal,
+        tanggal,
+        no_bukti,
+        sumber,
+        keterangan,
+        id_periode,
+        is_posted
+      `,
+      )
+      .eq("id_jurnal", jurnalId)
+      .single();
 
-    if (fetchError) throw fetchError;
-
-    if (!jurnal) {
+    if (jurnalError || !jurnalData) {
       return NextResponse.json(
         { message: "Jurnal tidak ditemukan" },
         { status: 404 },
       );
     }
 
-    const jurnalRow = jurnal as JurnalRow;
+    const { data: detailData, error: detailError } = await db
+      .from("jurnal_detail")
+      .select(
+        `
+        id_detail,
+        id_coa,
+        debit,
+        kredit
+      `,
+      )
+      .eq("id_jurnal", jurnalId);
 
-    /* ===============================
-       🔒 LOCK jika periode CLOSED
-    ================================ */
-    const locked = await isPeriodeClosed(jurnalRow.id_periode);
-
-    if (locked) {
+    if (detailError) {
       return NextResponse.json(
-        { message: "Periode CLOSED, jurnal tidak bisa diubah" },
-        { status: 403 },
+        { message: detailError.message },
+        { status: 500 },
       );
     }
 
-    /* ===============================
-       Update header jurnal
-    ================================ */
-    const { error: updateError } = await supabase
-      .from("jurnal")
-      .update({
-        tanggal: parsed.tanggal,
-        no_bukti: parsed.no_bukti,
-        keterangan: parsed.keterangan,
-        id_periode: String(parsed.id_periode),
-      })
-      .eq("id_jurnal", id_jurnal);
+    const coaIds: number[] = (detailData ?? []).map((d) => d.id_coa);
 
-    if (updateError) throw updateError;
+    const { data: coaData } = await db
+      .from("coa")
+      .select(
+        `
+        id_coa,
+        kode,
+        nama
+      `,
+      )
+      .in("id_coa", coaIds);
 
-    /* ===============================
-       Replace jurnal_detail
-    ================================ */
+    const coaMap: Record<number, CoaRow> = {};
 
-    // 1️⃣ Hapus detail lama
-    const { error: deleteError } = await supabase
-      .from("jurnal_detail")
-      .delete()
-      .eq("id_jurnal", id_jurnal);
+    (coaData ?? []).forEach((c) => {
+      coaMap[c.id_coa] = {
+        id_coa: c.id_coa,
+        kode: c.kode,
+        nama: c.nama,
+      };
+    });
 
-    if (deleteError) throw deleteError;
-
-    // 2️⃣ Insert detail baru
-    const detailRows = parsed.details.map((d) => ({
-      id_jurnal: id_jurnal,
-      id_coa: String(d.id_coa),
+    const details: DetailRow[] = (detailData ?? []).map((d) => ({
+      id_detail: d.id_detail,
+      id_coa: d.id_coa,
       debit: d.debit,
       kredit: d.kredit,
+      coa: coaMap[d.id_coa] ?? null,
     }));
 
-    const { error: insertError } = await supabase
-      .from("jurnal_detail")
-      .insert(detailRows);
+    const result: JurnalRow = {
+      id_jurnal: jurnalData.id_jurnal,
+      tanggal: jurnalData.tanggal,
+      no_bukti: jurnalData.no_bukti,
+      sumber: jurnalData.sumber,
+      keterangan: jurnalData.keterangan,
+      id_periode: jurnalData.id_periode,
+      is_posted: jurnalData.is_posted ?? false,
+      jurnal_detail: details,
+    };
 
-    if (insertError) throw insertError;
+    return NextResponse.json(result);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return NextResponse.json({ message: error.message }, { status: 500 });
+    }
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("PUT JURNAL ERROR:", error);
     return NextResponse.json(
-      { message: "Gagal update jurnal" },
-      { status: 400 },
-    );
-  }
-}
-
-/* ===============================
-   DELETE: Delete Jurnal
-================================ */
-export async function DELETE(_: Request, context: { params: Promise<Params> }) {
-  try {
-    const { id } = await context.params;
-    const id_jurnal: string = id;
-
-    if (!id_jurnal) {
-      return NextResponse.json(
-        { message: "id_jurnal tidak valid" },
-        { status: 400 },
-      );
-    }
-
-    /* ===============================
-       Ambil jurnal existing
-    ================================ */
-    const { data: jurnal, error: fetchError } = await supabase
-      .from("jurnal")
-      .select("id_jurnal, id_periode")
-      .eq("id_jurnal", id_jurnal)
-      .maybeSingle();
-
-    if (fetchError) throw fetchError;
-
-    if (!jurnal) {
-      return NextResponse.json(
-        { message: "Jurnal tidak ditemukan" },
-        { status: 404 },
-      );
-    }
-
-    const jurnalRow = jurnal as JurnalRow;
-
-    /* ===============================
-       🔒 LOCK jika periode CLOSED
-    ================================ */
-    const locked = await isPeriodeClosed(jurnalRow.id_periode);
-
-    if (locked) {
-      return NextResponse.json(
-        { message: "Periode CLOSED, jurnal tidak bisa dihapus" },
-        { status: 403 },
-      );
-    }
-
-    /* ===============================
-       Hapus detail → header
-    ================================ */
-    const { error: deleteDetailError } = await supabase
-      .from("jurnal_detail")
-      .delete()
-      .eq("id_jurnal", id_jurnal);
-
-    if (deleteDetailError) throw deleteDetailError;
-
-    const { error: deleteHeaderError } = await supabase
-      .from("jurnal")
-      .delete()
-      .eq("id_jurnal", id_jurnal);
-
-    if (deleteHeaderError) throw deleteHeaderError;
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("DELETE JURNAL ERROR:", error);
-    return NextResponse.json(
-      { message: "Gagal hapus jurnal" },
-      { status: 400 },
+      { message: "Gagal ambil jurnal" },
+      { status: 500 },
     );
   }
 }

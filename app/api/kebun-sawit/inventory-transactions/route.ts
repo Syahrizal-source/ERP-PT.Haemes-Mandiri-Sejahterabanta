@@ -1,179 +1,120 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
+import {
+  inventoryTransactionSchema,
+  InventoryTransactionInput,
+} from "@/lib/validators/inventory-transaction";
+import { postJournal } from "@/lib/accounting/postJournal";
+import { JurnalLine } from "@/types/accounting";
+import { getCoaMappingTransaction } from "@/lib/accounting/getcoamappingtransaction";
 
 /* =========================
-   ZOD SCHEMA
-========================= */
-
-const schema = z.object({
-  item_id: z.string().uuid("Item ID tidak valid"),
-
-  block_id: z.string().uuid("Block ID tidak valid").optional(),
-
-  transaction_date: z
-    .string()
-    .refine((val: string) => !isNaN(Date.parse(val)), {
-      message: "Tanggal tidak valid",
-    }),
-
-  transaction_type: z.enum(["IN", "OUT"]),
-
-  quantity: z.coerce.number().min(0.0001, "Quantity harus lebih dari 0"),
-
-  unit_price: z.coerce.number().min(0, "Harga tidak boleh minus"),
-
-  /* Pajak opsional */
-  ppn_rate: z.coerce.number().min(0).max(100).optional(),
-
-  pph23_rate: z.coerce.number().min(0).max(100).optional(),
-
-  pph4_rate: z.coerce.number().min(0).max(100).optional(),
-});
-
-type Input = z.infer<typeof schema>;
-
-/* =========================
-   GET ALL
+   GET LIST
 ========================= */
 
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
     .from("inventory_transactions")
-    .select(
-      `
-      id,
-      item_id,
-      block_id,
-      transaction_date,
-      transaction_type,
-      quantity,
-      unit_price,
-      subtotal,
-      reference_module,
-      notes,
-      created_at
-    `,
-    )
+    .select("*")
     .order("transaction_date", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ message: error.message }, { status: 500 });
+    throw new Error(error.message);
   }
 
-  return NextResponse.json(data, { status: 200 });
+  return NextResponse.json(data);
 }
 
 /* =========================
-   POST
+   CREATE TRANSACTION
 ========================= */
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const body: unknown = await request.json();
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const body: unknown = await req.json();
 
-    const parsed = schema.safeParse(body);
+  const payload: InventoryTransactionInput =
+    inventoryTransactionSchema.parse(body);
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { errors: parsed.error.flatten() },
-        { status: 400 },
-      );
-    }
+  const quantity = Number(payload.quantity);
+  const unitPrice = Number(payload.unit_price);
 
-    const input: Input = parsed.data;
+  const subtotal = quantity * unitPrice;
 
-    /* =========================
-       HITUNG SUBTOTAL
-    ========================= */
+  const ppn = Number(payload.ppn ?? 0);
+  const pph23 = Number(payload.pph23 ?? 0);
+  const pph4 = Number(payload.pph4 ?? 0);
 
-    const subtotal: number = input.quantity * input.unit_price;
+  const ppnAmount = subtotal * (ppn / 100);
+  const pph23Amount = subtotal * (pph23 / 100);
+  const pph4Amount = subtotal * (pph4 / 100);
 
-    if (subtotal < 0) {
-      return NextResponse.json(
-        { message: "Perhitungan subtotal tidak valid" },
-        { status: 400 },
-      );
-    }
+  const totalAmount = subtotal + ppnAmount - pph23Amount - pph4Amount;
 
-    /* =========================
-       INSERT INVENTORY
-    ========================= */
+  const { data: inserted, error } = await db
+    .from("inventory_transactions")
+    .insert({
+      item_id: payload.item_id,
+      block_id: payload.block_id ?? null,
+      transaction_date: payload.transaction_date,
+      transaction_type: payload.transaction_type,
+      quantity,
+      unit_price: unitPrice,
+      subtotal,
+      total_amount: totalAmount,
+      ppn,
+      pph23,
+      pph4,
+      reference_module: payload.reference_module ?? null,
+      notes: payload.notes ?? null,
+    })
+    .select("id")
+    .single();
 
-    const { data, error } = await db
-      .from("inventory_transactions")
-      .insert({
-        item_id: input.item_id,
-        block_id: input.block_id ?? null,
-        transaction_date: input.transaction_date,
-        transaction_type: input.transaction_type,
-        quantity: input.quantity,
-        unit_price: input.unit_price,
-        subtotal,
-      })
-      .select()
+  if (error || !inserted) {
+    throw new Error("Gagal menyimpan transaksi inventory");
+  }
+
+  /* =========================
+     POST JURNAL
+  ========================= */
+
+  if (payload.block_id) {
+    const { data: block } = await db
+      .from("blocks")
+      .select("region_id,id_cost_center")
+      .eq("id", payload.block_id)
       .single();
 
-    if (error) {
-      return NextResponse.json({ message: error.message }, { status: 500 });
-    }
+    if (block) {
+      const mapping = await getCoaMappingTransaction(
+        "MAINTENANCE",
+        block.region_id,
+      );
 
-    /* =========================
-       HANDLE PPN (Optional)
-    ========================= */
+      const lines: JurnalLine[] = mapping.map((m) => ({
+        id_coa: m.id_coa,
+        debit: m.posisi === "DEBIT" ? totalAmount : 0,
+        kredit: m.posisi === "KREDIT" ? totalAmount : 0,
+        id_cost_center: block.id_cost_center,
+      }));
 
-    if (input.ppn_rate !== undefined && input.ppn_rate > 0) {
-      const ppnAmount: number = (subtotal * input.ppn_rate) / 100;
-
-      await db.from("ppn").insert({
-        id_transaksi: data.id,
-        jenis_ppn: "masukan",
-        nilai_dasar: subtotal,
-        tarif_ppn: input.ppn_rate,
-        nilai_ppn: ppnAmount,
-        tanggal_transaksi: input.transaction_date,
+      await postJournal({
+        tanggal: payload.transaction_date,
+        no_bukti: `INV-${inserted.id}`,
+        keterangan: payload.notes ?? "Inventory Transaction",
+        sumber: "KEBUN",
+        modul: "INVENTORY_TRANSACTION",
+        ref_id: inserted.id,
+        lines,
       });
     }
-
-    /* =========================
-       HANDLE PPh23 (Optional)
-    ========================= */
-
-    if (input.pph23_rate !== undefined && input.pph23_rate > 0) {
-      const pphAmount: number = (subtotal * input.pph23_rate) / 100;
-
-      await db.from("pph23").insert({
-        id_vendor: 1, // sementara static
-        jenis_jasa: "Pembelian Material",
-        nilai_transaksi: subtotal,
-        tarif_pph23: input.pph23_rate,
-        pph23_terutang: pphAmount,
-        tanggal_transaksi: input.transaction_date,
-      });
-    }
-
-    /* =========================
-       HANDLE PPh4 (Optional)
-    ========================= */
-
-    if (input.pph4_rate !== undefined && input.pph4_rate > 0) {
-      const pph4Amount: number = (subtotal * input.pph4_rate) / 100;
-
-      await db.from("pph4").insert({
-        id_vendor: 1,
-        jenis_objek: "Pembelian Material",
-        nilai_transaksi: subtotal,
-        tarif_pph4: input.pph4_rate,
-        pph4_terutang: pph4Amount,
-        tanggal_transaksi: input.transaction_date,
-      });
-    }
-
-    return NextResponse.json(data, { status: 201 });
-  } catch {
-    return NextResponse.json(
-      { message: "Invalid request body" },
-      { status: 400 },
-    );
   }
+
+  return NextResponse.json(
+    {
+      message: "Inventory transaction berhasil",
+      id: inserted.id,
+    },
+    { status: 201 },
+  );
 }

@@ -1,21 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
-
-/* =========================
-   ZOD SCHEMA
-========================= */
-
-const estateSchema = z.object({
-  region_id: z.string().uuid(),
-  code: z.string().min(1).max(20),
-  name: z.string().min(1).max(100),
-  total_area_ha: z.coerce.number().min(0, "Total area tidak boleh minus"),
-  manager_name: z.string().max(100).nullable().optional(),
-  is_active: z.boolean().optional(),
-});
-
-type EstateInput = z.infer<typeof estateSchema>;
+import {
+  estateCreateSchema,
+  type EstateCreateInput,
+} from "@/lib/validators/estate";
 
 /* =========================
    GET
@@ -42,16 +30,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body: unknown = await request.json();
 
-    const parsed = estateSchema.safeParse(body);
+    const parsed = estateCreateSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
-        { errors: parsed.error.flatten() },
+        { errors: parsed.error.issues },
         { status: 400 },
       );
     }
 
-    const input: EstateInput = parsed.data;
+    const input: EstateCreateInput = parsed.data;
 
     const { data, error } = await db
       .from("estates")

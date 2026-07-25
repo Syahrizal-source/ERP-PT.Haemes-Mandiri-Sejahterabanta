@@ -1,39 +1,138 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/supabase/server";
-import { armadaSchema } from "@/lib/validators/armada";
+import {
+  armadaSchema,
+  normalizeArmada,
+  hitungArmada,
+  validateArmada,
+  type ArmadaInput,
+} from "@/lib/validators/armada";
 
-type Params = { id: string };
+const paramSchema = z.object({
+  id: z.string(),
+});
 
-export async function PUT(
-  req: Request,
-  { params }: { params: Promise<Params> },
+type Context = {
+  params: Promise<{ id: string }>;
+};
+
+/* =========================
+   GET BY ID
+========================= */
+export async function GET(
+  _req: NextRequest,
+  ctx: Context,
 ): Promise<NextResponse> {
-  const { id } = await params;
-  const body = await req.json();
-  const parsed = armadaSchema.safeParse(body);
-  if (!parsed.success)
-    return NextResponse.json(parsed.error.format(), { status: 400 });
+  const params = await ctx.params;
 
-  const payload = { ...parsed.data, "m³": parsed.data.m3 };
-  delete (payload as { m3?: number }).m3;
+  const parsed = paramSchema.safeParse(params);
 
-  const { error } = await db
+  if (!parsed.success) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+  }
+
+  const id = Number(parsed.data.id);
+
+  const { data, error } = await db
     .from("armada")
-    .update(payload)
-    .eq("id", Number(id));
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    .select("*")
+    .eq("id", id)
+    .single();
 
-  return NextResponse.json({ success: true });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(data);
 }
 
-export async function DELETE(
-  _: Request,
-  { params }: { params: Promise<Params> },
+/* =========================
+   PUT
+========================= */
+export async function PUT(
+  req: NextRequest,
+  ctx: Context,
 ): Promise<NextResponse> {
-  const { id } = await params;
-  const { error } = await db.from("armada").delete().eq("id", Number(id));
-  if (error)
+  try {
+    const params = await ctx.params;
+
+    const parsedParams = paramSchema.safeParse(params);
+
+    if (!parsedParams.success) {
+      return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+    }
+
+    const id = Number(parsedParams.data.id);
+
+    const body: unknown = await req.json();
+
+    const parsedBody = armadaSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Data tidak valid" }, { status: 400 });
+    }
+
+    const input: ArmadaInput = parsedBody.data;
+
+    const dataNorm = normalizeArmada(input);
+    validateArmada(dataNorm);
+
+    const hitung = hitungArmada(dataNorm);
+
+    const { data, error } = await db
+      .from("armada")
+      .update({
+        ...dataNorm,
+        jumlah_tagihan: hitung.jumlah_tagihan,
+        jumlah_uang_jalan: hitung.jumlah_uang_jalan,
+        jumlah_do: hitung.jumlah_do,
+        bersih: hitung.bersih,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "Gagal update");
+    }
+
+    return NextResponse.json({
+      message: "Berhasil diupdate",
+      data,
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
+  }
+}
+
+/* =========================
+   DELETE
+========================= */
+export async function DELETE(
+  _req: NextRequest,
+  ctx: Context,
+): Promise<NextResponse> {
+  const params = await ctx.params;
+
+  const parsed = paramSchema.safeParse(params);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+  }
+
+  const id = Number(parsed.data.id);
+
+  const { error } = await db.from("armada").delete().eq("id", id);
+
+  if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true });
+  }
+
+  return NextResponse.json({
+    message: "Berhasil dihapus",
+  });
 }

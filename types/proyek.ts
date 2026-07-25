@@ -32,6 +32,25 @@ export type ProyekRAB = {
   harga_satuan: number;
 };
 
+export type ProyekRAP = {
+  id: UUID;
+  id_proyek: UUID;
+  kategori:
+    | "alat"
+    | "tenaga_kerja"
+    | "bbm"
+    | "sparepart"
+    | "subcontract"
+    | "overhead";
+  nama_item: string;
+  keterangan?: string;
+  qty: number;
+  harga: number;
+  total?: number;
+  tanggal: string;
+  created_at?: string;
+};
+
 export type ProyekCostControl = {
   id: UUID;
   id_rab: UUID;
@@ -106,6 +125,45 @@ export type ProyekPiutang = {
   nilai: number;
   sisa: number;
   jatuh_tempo?: string;
+};
+
+/* =========================
+   PIUTANG PROYEK ACCOUNTING
+========================= */
+
+export type StatusPiutangProyek =
+  | "Unpaid (Menunggu Pembayaran)"
+  | "Partial (Pembayaran Sebagian)"
+  | "Paid (Pembayaran Penuh/ Lunas)";
+
+export type PiutangProyekAccounting = {
+  id_piutang_proyek: number;
+
+  id_proyek: string;
+
+  tanggal: string;
+
+  customer: string;
+
+  tanggal_pembayaran?: string | null;
+
+  nilai_piutang: number;
+
+  penerimaan: number;
+
+  saldo: number;
+
+  keterangan?: string | null;
+
+  status: StatusPiutangProyek;
+
+  id_jurnal?: string | null;
+
+  is_posted: boolean;
+
+  created_at?: string;
+
+  updated_at?: string;
 };
 
 export type ProyekMaterial = {

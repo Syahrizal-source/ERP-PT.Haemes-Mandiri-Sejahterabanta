@@ -15,10 +15,13 @@ const supabase = createClient(
 type PeriodeStatus = "OPEN" | "CLOSED";
 
 interface PeriodeRow {
-  id_periode: string; // BIGINT → string
-  nama_periode: string; // contoh: "01-01-2026 s/d 31-12-2026"
+  id_periode: string;
+  nama_periode: string;
   status: PeriodeStatus;
   created_at: string;
+  jurnal?: {
+    id_jurnal: number;
+  }[];
 }
 
 /* ===============================
@@ -28,17 +31,49 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from<PeriodeRow>("periode")
-      .select("id_periode, nama_periode, status, created_at")
-      .order("created_at", { ascending: false });
+      .select(
+        `
+    id_periode,
+    nama_periode,
+    status,
+    created_at,
 
-    if (error) throw error;
+    jurnal (
+      id_jurnal
+    )
+  `,
+      )
+      .order("status", {
+        ascending: true,
+      })
+      .order("created_at", {
+        ascending: false,
+      });
 
-    return NextResponse.json(data ?? []);
+    if (error) {
+      throw error;
+    }
+    /* ===============================
+   FILTER:
+   - tampilkan OPEN
+   - tampilkan CLOSED yang punya jurnal
+================================ */
+    const filteredData = (data ?? []).filter(
+      (periode): boolean =>
+        periode.status === "OPEN" || (periode.jurnal?.length ?? 0) > 0,
+    );
+
+    return NextResponse.json(filteredData);
   } catch (err) {
     console.error("GET PERIODE ERROR:", err);
+
     return NextResponse.json(
-      { message: "Gagal ambil data periode" },
-      { status: 500 },
+      {
+        message: "Gagal ambil data periode",
+      },
+      {
+        status: 500,
+      },
     );
   }
 }

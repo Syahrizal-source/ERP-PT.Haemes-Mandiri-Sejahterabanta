@@ -1,84 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 
-/* =========================
-   PARAM VALIDATION
-========================= */
-
-const idSchema = z.object({
-  id: z.string().uuid("ID tidak valid"),
-});
+import {
+  replantingUpdateSchema,
+  replantingParamSchema,
+  ReplantingUpdateInput,
+} from "@/lib/validators/replantings";
 
 /* =========================
-   UPDATE SCHEMA
-========================= */
-
-const updateSchema = z.object({
-  activity_date: z
-    .string()
-    .refine((val: string) => !isNaN(Date.parse(val)), {
-      message: "Tanggal tidak valid",
-    })
-    .optional(),
-
-  activity_type: z
-    .enum(["TEBANG", "CHIPPING", "TANAM_ULANG", "BIBIT_MASUK"])
-    .optional(),
-
-  quantity: z.coerce
-    .number()
-    .int("Quantity harus bilangan bulat")
-    .min(0, "Quantity tidak boleh minus")
-    .optional(),
-
-  cost: z.coerce.number().min(0, "Biaya tidak boleh minus").optional(),
-
-  notes: z.string().max(500).optional(),
-});
-
-type UpdateInput = z.infer<typeof updateSchema>;
-
-/* =========================
-   PUT
+   UPDATE REPLANTING
 ========================= */
 
 export async function PUT(
-  request: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const { id } = await context.params;
 
-    const parsedId = idSchema.safeParse({ id });
+    const parsedId = replantingParamSchema.safeParse({ id });
 
     if (!parsedId.success) {
       return NextResponse.json(
-        { errors: parsedId.error.flatten() },
+        { errors: parsedId.error.issues },
         { status: 400 },
       );
     }
 
-    const body: unknown = await request.json();
-    const parsedBody = updateSchema.safeParse(body);
+    const body: unknown = await req.json();
 
-    if (!parsedBody.success) {
+    const parsed = replantingUpdateSchema.safeParse(body);
+
+    if (!parsed.success) {
       return NextResponse.json(
-        { errors: parsedBody.error.flatten() },
+        { errors: parsed.error.issues },
         { status: 400 },
       );
     }
 
-    const input: UpdateInput = parsedBody.data;
+    const input: ReplantingUpdateInput = parsed.data;
 
     const { data, error } = await db
       .from("replantings")
       .update({
-        activity_date: input.activity_date,
-        activity_type: input.activity_type,
-        quantity: input.quantity,
-        cost: input.cost,
-        notes: input.notes ?? null,
+        block_id: input.block_id,
+        tanggal: input.tanggal,
+        pokok_ditebang: input.pokok_ditebang,
+        pokok_ditanam: input.pokok_ditanam,
+        biaya_total: input.biaya_total,
+        keterangan: input.keterangan ?? null,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", id)
       .select()
@@ -98,20 +69,20 @@ export async function PUT(
 }
 
 /* =========================
-   DELETE
+   DELETE REPLANTING
 ========================= */
 
 export async function DELETE(
-  _request: NextRequest,
+  _req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await context.params;
 
-  const parsedId = idSchema.safeParse({ id });
+  const parsedId = replantingParamSchema.safeParse({ id });
 
   if (!parsedId.success) {
     return NextResponse.json(
-      { errors: parsedId.error.flatten() },
+      { errors: parsedId.error.issues },
       { status: 400 },
     );
   }
@@ -123,7 +94,7 @@ export async function DELETE(
   }
 
   return NextResponse.json(
-    { message: "Data berhasil dihapus" },
+    { message: "Replanting berhasil dihapus" },
     { status: 200 },
   );
 }

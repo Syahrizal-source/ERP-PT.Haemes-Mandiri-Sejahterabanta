@@ -11,7 +11,7 @@ export function generateQRCodeValue(trx: QRSource): string {
   return crypto
     .createHash("sha256")
     .update(
-      `${trx.id}|${trx.sumber_modul}|${trx.nilai_transaksi}|${trx.tanggal_transaksi}`
+      `${trx.id}|${trx.sumber_modul}|${trx.nilai_transaksi}|${trx.tanggal_transaksi}`,
     )
     .digest("hex");
 }

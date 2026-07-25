@@ -2,27 +2,187 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================
+   ROOT THEME (ERP STYLE)
+========================= */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc; /* soft gray */
+  --foreground: #0f172a; /* slate-900 */
+
+  --primary: #2563eb; /* biru ERP */
+  --primary-foreground: #ffffff;
+
+  --border: #e2e8f0;
+  --muted: #64748b;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* DARK MODE */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #020617;
+    --foreground: #e2e8f0;
+
+    --border: #1e293b;
+    --muted: #94a3b8;
   }
 }
 
+/* =========================
+   BASE STYLE
+========================= */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* =========================
+   TYPOGRAPHY ERP
+========================= */
+h1 {
+  @apply text-2xl font-semibold tracking-tight;
+}
+
+h2 {
+  @apply text-xl font-semibold;
+}
+
+h3 {
+  @apply text-lg font-medium;
+}
+
+p {
+  @apply text-sm text-slate-700;
+}
+
+/* =========================
+   CARD / PANEL
+========================= */
+.card {
+  @apply bg-white border rounded-xl shadow-sm p-4;
+}
+
+/* =========================
+   TABLE ERP STYLE
+========================= */
+table {
+  @apply w-full text-sm border border-slate-200 rounded-lg overflow-hidden;
+}
+
+thead {
+  @apply bg-slate-100 text-slate-700;
+}
+
+th {
+  @apply px-3 py-2 text-left font-medium;
+}
+
+td {
+  @apply px-3 py-2 border-t;
+}
+
+/* =========================
+   BUTTON IMPROVEMENT
+========================= */
+button {
+  @apply transition-all duration-200;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* =========================
+   SCROLL (HALUS)
+========================= */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5f5;
+  border-radius: 4px;
+}
+
+body.swal2-shown > [aria-hidden="true"] {
+  transition: 0.1s filter;
+  filter: blur(3px);
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: auto;
+  }
+
+  body {
+    overflow: visible;
+  }
+
+  /* sembunyikan semua */
+  body * {
+    visibility: hidden;
+  }
+
+  /* tampilkan hanya slip */
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+
+  /* container A4 */
+  #print-area {
+    width: 186mm; /* A4 - margin */
+    min-height: auto;
+
+    margin: 0 auto;
+    padding: 10mm;
+
+    box-sizing: border-box;
+
+    background: white;
+
+    font-size: 12px;
+
+    /* PENTING: jangan pakai absolute */
+    position: relative;
+
+    /* anti kepotong */
+    page-break-inside: avoid;
+    break-inside: avoid;
+
+    /* rapihin */
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+
+  /* cegah pecah */
+  #print-area * {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* hilangkan UI lain */
+  aside,
+  nav,
+  header,
+  footer,
+  button {
+    display: none !important;
+  }
+
+  /* logo fix */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
 }

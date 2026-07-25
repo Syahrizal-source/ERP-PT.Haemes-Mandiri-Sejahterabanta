@@ -1,9 +1,10 @@
 import ExcelJS from "exceljs";
 import QRCode from "qrcode";
+import { generateReportHash } from "@/lib/security/hash";
 
-type PPNExportRow = {
+export type PPNExportRow = {
   id: number;
-  jenis_ppn: string;
+  jenis_ppn: "keluaran" | "masukan";
   nilai_dasar: number;
   tarif_ppn: number;
   nilai_ppn: number;
@@ -19,30 +20,46 @@ export async function buildPPNExcelWithQR(
   sheet.columns = [
     { header: "ID", key: "id", width: 10 },
     { header: "Jenis", key: "jenis_ppn", width: 15 },
-    { header: "Nilai Dasar", key: "nilai_dasar", width: 18 },
-    { header: "Tarif %", key: "tarif_ppn", width: 10 },
-    { header: "Nilai PPN", key: "nilai_ppn", width: 18 },
+    { header: "Nilai Dasar", key: "nilai_dasar", width: 20 },
+    { header: "Tarif (%)", key: "tarif_ppn", width: 15 },
+    { header: "Nilai PPN", key: "nilai_ppn", width: 20 },
     { header: "Tanggal", key: "tanggal_transaksi", width: 15 },
-    { header: "QR", key: "qr", width: 20 },
   ];
 
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const rowIndex = i + 2;
+  rows.forEach((row) => {
+    sheet.addRow(row);
+  });
 
-    sheet.addRow(r);
+  const metadata = {
+    module: "PPN",
+    total_rows: rows.length,
+    generated_at: new Date().toISOString(),
+    data: rows,
+  };
 
-    const qrDataUrl = await QRCode.toDataURL(`PPN-${r.id}`);
-    const base64 = qrDataUrl.replace(/^data:image\/png;base64,/, "");
-    const imageId = workbook.addImage({ base64, extension: "png" });
+  const hash = generateReportHash(metadata);
+  const qrImage = await QRCode.toBuffer(hash);
 
-    sheet.addImage(imageId, {
-      tl: { col: 6, row: rowIndex - 1 },
-      ext: { width: 120, height: 120 },
-    });
+  const imageId = workbook.addImage({
+    buffer: qrImage,
+    extension: "png",
+  });
 
-    sheet.getRow(rowIndex).height = 95;
-  }
+  sheet.addImage(imageId, {
+    tl: { col: 7, row: 1 },
+    ext: { width: 150, height: 150 },
+  });
+
+  const footerRowIndex = rows.length + 3;
+
+  sheet.getCell(`A${footerRowIndex}`).value = "Generated At:";
+  sheet.getCell(`B${footerRowIndex}`).value = metadata.generated_at;
+
+  sheet.getCell(`A${footerRowIndex + 1}`).value = "Report Hash:";
+  sheet.getCell(`B${footerRowIndex + 1}`).value = hash;
+
+  sheet.getCell(`A${footerRowIndex + 2}`).value = "Internal Signature:";
+  sheet.getCell(`B${footerRowIndex + 2}`).value = "SYSTEM-AUTO-GENERATED";
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

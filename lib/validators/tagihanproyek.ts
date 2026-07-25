@@ -1,16 +1,19 @@
 import { z } from "zod";
 
-export const tagihanProyekSchema = z.object({
-  proyek_id: z.number(),
-  tanggal: z.string(), // YYYY-MM-DD
-  no_kwitansi: z
-    .string()
-    .regex(
-      /^\d+\/[A-Z]+-[A-Z]+\/[IVXLCDM]+\/\d{2}$/,
-      "Format no_kwitansi tidak valid (contoh: 92/HAE-IDP/IX/25)"
-    ),
-  deskripsi: z.string(),
-  tanggal_pembayaran: z.string(), // YYYY-MM-DD
-  debet: z.number(),
-  kredit: z.number(),
+export const TagihanProyekSchema = z.object({
+  id_proyek: z.string().uuid("ID Proyek tidak valid"),
+
+  nomor_invoice: z.string().min(1, "Nomor invoice wajib diisi"),
+
+  tanggal: z.string().min(1, "Tanggal wajib diisi"),
+
+  nilai: z.number().min(0, "Nilai tidak boleh minus"),
+
+  status: z.enum([
+    "Unpaid (Menunggu Pembayaran)",
+    "Partial (Pembayaran Sebagian)",
+    "Paid (Pembayaran Penuh/ Lunas)",
+  ]),
 });
+
+export type TagihanProyekInput = z.infer<typeof TagihanProyekSchema>;

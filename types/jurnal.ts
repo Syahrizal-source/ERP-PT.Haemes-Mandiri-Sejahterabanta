@@ -40,7 +40,7 @@ export interface JurnalDetail {
   id_proyek?: string | null;
 
   // COST CONTROL (AMAN)
-  id_cost_center?: number | null;
+  id_cost_center?: string | null;
 }
 
 export interface JurnalPenutupForm {
@@ -97,5 +97,5 @@ export interface JurnalProyekDetailForm {
   id_coa: number;
   debit: number;
   kredit: number;
-  id_cost_center?: number | null;
+  id_cost_center?: string | null;
 }

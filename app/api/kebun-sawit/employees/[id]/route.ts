@@ -1,37 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 
-/* =========================
-   PARAM VALIDATION
-========================= */
-
-const paramSchema = z.object({
-  id: z.string().uuid("ID tidak valid"),
-});
+import {
+  employeeUpdateSchema,
+  employeeParamSchema,
+  EmployeeUpdateInput,
+} from "@/lib/validators/employees";
 
 /* =========================
-   UPDATE SCHEMA
-========================= */
-
-const updateSchema = z.object({
-  division_id: z.string().uuid("Division ID tidak valid").optional(),
-
-  nik: z.string().min(1, "NIK tidak boleh kosong").max(50).optional(),
-
-  name: z.string().min(1, "Nama wajib diisi").max(100).optional(),
-
-  position: z
-    .enum(["MANDOR", "PEMANEN", "PEMUPUK", "PERAWATAN", "LAINNYA"])
-    .optional(),
-
-  is_active: z.boolean().optional(),
-});
-
-type UpdateInput = z.infer<typeof updateSchema>;
-
-/* =========================
-   PUT (UPDATE)
+   UPDATE EMPLOYEE
 ========================= */
 
 export async function PUT(
@@ -39,38 +16,39 @@ export async function PUT(
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const params = await context.params;
+    const { id } = await context.params;
 
-    const parsedParams = paramSchema.safeParse(params);
+    const parsedId = employeeParamSchema.safeParse({ id });
 
-    if (!parsedParams.success) {
+    if (!parsedId.success) {
       return NextResponse.json(
-        { errors: parsedParams.error.flatten() },
+        { errors: parsedId.error.issues },
         { status: 400 },
       );
     }
 
-    const id: string = parsedParams.data.id;
-
     const body: unknown = await request.json();
-    const parsedBody = updateSchema.safeParse(body);
+
+    const parsedBody = employeeUpdateSchema.safeParse(body);
 
     if (!parsedBody.success) {
       return NextResponse.json(
-        { errors: parsedBody.error.flatten() },
+        { errors: parsedBody.error.issues },
         { status: 400 },
       );
     }
 
-    const input: UpdateInput = parsedBody.data;
+    const input: EmployeeUpdateInput = parsedBody.data;
 
     const { data, error } = await db
       .from("employees")
       .update({
-        division_id: input.division_id ?? null,
         nik: input.nik,
         name: input.name,
         position: input.position,
+        division_id: input.division_id,
+        hire_date: input.hire_date,
+        basic_salary: input.basic_salary,
         is_active: input.is_active,
         updated_at: new Date().toISOString(),
       })
@@ -92,25 +70,23 @@ export async function PUT(
 }
 
 /* =========================
-   DELETE
+   DELETE EMPLOYEE
 ========================= */
 
 export async function DELETE(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const params = await context.params;
+  const { id } = await context.params;
 
-  const parsedParams = paramSchema.safeParse(params);
+  const parsedId = employeeParamSchema.safeParse({ id });
 
-  if (!parsedParams.success) {
+  if (!parsedId.success) {
     return NextResponse.json(
-      { errors: parsedParams.error.flatten() },
+      { errors: parsedId.error.issues },
       { status: 400 },
     );
   }
-
-  const id: string = parsedParams.data.id;
 
   const { error } = await db.from("employees").delete().eq("id", id);
 

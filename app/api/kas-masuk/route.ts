@@ -1,8 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { kasMasukSchema } from "@/lib/validators/kas-masuk";
+import { kasMasukSchema, type KasMasukInput } from "@/lib/validators/kas-masuk";
+import { postKasMasuk } from "@/lib/accounting/postKasMasuk";
 
-type KasMasukRow = {
+/* =========================
+   TYPES
+========================= */
+
+interface KasMasukRow {
   id: number;
   tanggal: string;
   no_bukti: string;
@@ -10,109 +15,119 @@ type KasMasukRow = {
   id_akun_kas: number;
   id_akun_lawan: number;
   nominal: number;
+  ppn: number;
+  pph23: number;
+  total: number;
   keterangan: string;
-};
+  id_jurnal: number | null;
+}
 
-/* =========================
-   GET: List Kas Masuk
-========================= */
-export async function GET(): Promise<NextResponse> {
+export async function GET() {
   const { data, error } = await db
     .from("kas_masuk")
     .select(
-      "id,tanggal,no_bukti,sumber,id_akun_kas,id_akun_lawan,nominal,keterangan",
-    )
-    .order("tanggal", { ascending: false });
-
-  if (error || !data) {
-    return NextResponse.json(
-      { error: "Gagal ambil data kas masuk" },
-      { status: 500 },
-    );
-  }
-
-  const result: KasMasukRow[] = data.map((r) => ({
-    id: r.id as number,
-    tanggal: r.tanggal as string,
-    no_bukti: r.no_bukti as string,
-    sumber: r.sumber as string,
-    id_akun_kas: r.id_akun_kas as number,
-    id_akun_lawan: r.id_akun_lawan as number,
-    nominal: Number(r.nominal),
-    keterangan: r.keterangan as string,
-  }));
-
-  return NextResponse.json(result);
-}
-
-/* =========================
-   POST: Create Kas Masuk
-========================= */
-export async function POST(req: Request): Promise<NextResponse> {
-  const body: unknown = await req.json();
-  const parsed = kasMasukSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
-
-  const {
-    tanggal,
-    no_bukti,
-    sumber,
-    id_akun_kas,
-    id_akun_lawan,
-    nominal,
-    keterangan,
-  } = parsed.data;
-
-  // Guard: no_bukti unik
-  const { data: existing, error: existingError } = await db
-    .from("kas_masuk")
-    .select("id")
-    .eq("no_bukti", no_bukti)
-    .single();
-
-  if (existingError === null && existing) {
-    return NextResponse.json(
-      { error: "No bukti sudah dipakai" },
-      { status: 400 },
-    );
-  }
-
-  const { data, error } = await db
-    .from("kas_masuk")
-    .insert({
+      `
+      id,
       tanggal,
       no_bukti,
       sumber,
-      id_akun_kas,
-      id_akun_lawan,
       nominal,
+      ppn,
+      pph23,
+      total,
       keterangan,
-    })
-    .select(
-      "id,tanggal,no_bukti,sumber,id_akun_kas,id_akun_lawan,nominal,keterangan",
+      id_jurnal
+    `,
     )
-    .single();
+    .order("tanggal", { ascending: false });
 
-  if (error || !data) {
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(data ?? []);
+}
+
+/* =========================
+   POST
+========================= */
+
+export async function POST(req: NextRequest) {
+  try {
+    const body: unknown = await req.json();
+
+    if (typeof body !== "object" || body === null) {
+      return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    }
+
+    const payload = body as {
+      tanggal: string;
+      no_bukti: string;
+      sumber: string;
+      id_akun_kas: number;
+      id_akun_lawan: number;
+      nominal: number;
+      keterangan: string;
+    };
+
+    const nominal: number = Number(payload.nominal);
+    const ppn: number = nominal * 0.11;
+    const pph23: number = nominal * 0.02;
+    const total: number = nominal + ppn - pph23;
+
+    /* =========================
+       INSERT
+    ========================= */
+
+    const { data, error } = await db
+      .from("kas_masuk")
+      .insert({
+        tanggal: payload.tanggal,
+        no_bukti: payload.no_bukti,
+        sumber: payload.sumber,
+        id_akun_kas: payload.id_akun_kas,
+        id_akun_lawan: payload.id_akun_lawan,
+        nominal,
+        ppn, // ✅ WAJIB
+        pph23, // ✅ WAJIB
+        total, // ✅ WAJIB
+        keterangan: payload.keterangan,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw error;
+    }
+
+    /* =========================
+       POST JURNAL
+    ========================= */
+
+    const jurnalId: number = await postKasMasuk(
+      payload.tanggal,
+      payload.no_bukti,
+      payload.keterangan,
+      nominal,
+      ppn,
+      pph23,
+    );
+
+    await db
+      .from("kas_masuk")
+      .update({ id_jurnal: jurnalId })
+      .eq("id", data.id);
+
+    return NextResponse.json({
+      message: "Kas masuk berhasil",
+      data,
+    });
+  } catch (error: unknown) {
+    console.error("KAS MASUK ERROR:", error);
+
     return NextResponse.json(
-      { error: error?.message ?? "Gagal insert kas masuk" },
+      { error: (error as Error).message },
       { status: 500 },
     );
   }
-
-  const row: KasMasukRow = {
-    id: data.id as number,
-    tanggal: data.tanggal as string,
-    no_bukti: data.no_bukti as string,
-    sumber: data.sumber as string,
-    id_akun_kas: data.id_akun_kas as number,
-    id_akun_lawan: data.id_akun_lawan as number,
-    nominal: Number(data.nominal),
-    keterangan: data.keterangan as string,
-  };
-
-  return NextResponse.json(row, { status: 201 });
 }

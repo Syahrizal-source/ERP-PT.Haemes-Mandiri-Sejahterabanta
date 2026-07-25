@@ -55,20 +55,21 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   const { tanggal, no_invoice, customer, nominal, status } = parsed.data;
 
-  // Guard: no_invoice unik
-  const { data: existing, error: existingError } = await db
+  // Guard no_invoice unik
+  const { data: existing } = await db
     .from("invoice")
     .select("id")
     .eq("no_invoice", no_invoice)
     .single();
 
-  if (existingError === null && existing) {
+  if (existing) {
     return NextResponse.json(
       { error: "No invoice sudah dipakai" },
       { status: 400 },
     );
   }
 
+  // INSERT INVOICE
   const { data, error } = await db
     .from("invoice")
     .insert({
@@ -88,14 +89,66 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  const row: InvoiceRow = {
-    id: data.id as number,
-    tanggal: data.tanggal as string,
-    no_invoice: data.no_invoice as string,
-    customer: data.customer as string,
-    nominal: Number(data.nominal),
-    status: data.status as InvoiceRow["status"],
-  };
+  /* =========================
+     AUTO POSTING JURNAL
+     Dr Piutang
+     Cr Pendapatan
+  ========================== */
 
-  return NextResponse.json(row, { status: 201 });
+  // Ambil periode OPEN
+  const { data: periode } = await db
+    .from("periode")
+    .select("id_periode")
+    .eq("status", "OPEN")
+    .single();
+
+  if (periode) {
+    const id_periode: number = periode.id_periode as number;
+
+    // Ambil akun Piutang & Pendapatan (kode default)
+    const { data: piutang } = await db
+      .from("coa")
+      .select("id_coa")
+      .eq("kode", "12001")
+      .single();
+
+    const { data: pendapatan } = await db
+      .from("coa")
+      .select("id_coa")
+      .eq("kode", "41001")
+      .single();
+
+    if (piutang && pendapatan) {
+      const { data: jurnal } = await db
+        .from("jurnal")
+        .insert({
+          tanggal,
+          no_bukti: no_invoice,
+          sumber: "UMUM",
+          keterangan: `Invoice ${no_invoice}`,
+          id_periode,
+        })
+        .select("id_jurnal")
+        .single();
+
+      if (jurnal) {
+        await db.from("jurnal_detail").insert([
+          {
+            id_jurnal: jurnal.id_jurnal,
+            id_coa: piutang.id_coa,
+            debit: nominal,
+            kredit: 0,
+          },
+          {
+            id_jurnal: jurnal.id_jurnal,
+            id_coa: pendapatan.id_coa,
+            debit: 0,
+            kredit: nominal,
+          },
+        ]);
+      }
+    }
+  }
+
+  return NextResponse.json(data, { status: 201 });
 }

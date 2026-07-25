@@ -2,29 +2,121 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
 import { buildNeracaExcelWithQR } from "@/lib/export/neraca-export";
 
-type NeracaRow = {
+interface JurnalRow {
+  id_jurnal: number;
+  tanggal: string;
+  sumber: string;
+}
+
+interface JurnalDetailRow {
+  id_jurnal: number;
+  id_coa: number;
+  debit: string;
+  kredit: string;
+}
+
+interface CoaRow {
+  id_coa: number;
+  tipe: string;
+}
+
+interface NeracaRow {
   tipe: "ASET" | "LIABILITAS" | "EKUITAS";
   saldo: number;
-};
+}
 
-export async function GET(): Promise<NextResponse> {
-  const { data, error } = await db
-    .from("report_neraca_armada")
-    .select("tipe, saldo")
-    .returns<NeracaRow[]>();
+export async function GET(req: Request): Promise<NextResponse> {
+  const { searchParams } = new URL(req.url);
+  const start = searchParams.get("start");
+  const end = searchParams.get("end");
 
-  if (error || !data || data.length === 0) {
+  // 1️⃣ Ambil jurnal ARMADA
+  let jurnalQuery = db
+    .from("jurnal")
+    .select("id_jurnal, tanggal, sumber")
+    .eq("sumber", "ARMADA");
+
+  if (start && end) {
+    jurnalQuery = jurnalQuery.gte("tanggal", start).lte("tanggal", end);
+  }
+
+  const { data: jurnalData, error: jurnalError } =
+    await jurnalQuery.returns<JurnalRow[]>();
+
+  if (jurnalError || !jurnalData) {
     return NextResponse.json(
-      { error: "Gagal ambil neraca armada" },
+      { error: "Gagal ambil jurnal ARMADA" },
       { status: 500 },
     );
   }
 
-  const aset = data.find((r) => r.tipe === "ASET")?.saldo ?? 0;
-  const liabilitas = data.find((r) => r.tipe === "LIABILITAS")?.saldo ?? 0;
-  const ekuitas = data.find((r) => r.tipe === "EKUITAS")?.saldo ?? 0;
+  const jurnalIds = jurnalData.map((j) => j.id_jurnal);
 
-  const buffer = await buildNeracaExcelWithQR(aset, ekuitas, liabilitas);
+  if (jurnalIds.length === 0) {
+    return NextResponse.json([]);
+  }
+
+  // 2️⃣ Ambil detail
+  const { data: detailData, error: detailError } = await db
+    .from("jurnal_detail")
+    .select("id_jurnal, id_coa, debit, kredit")
+    .in("id_jurnal", jurnalIds)
+    .returns<JurnalDetailRow[]>();
+
+  if (detailError || !detailData) {
+    return NextResponse.json(
+      { error: "Gagal ambil jurnal detail" },
+      { status: 500 },
+    );
+  }
+
+  // 3️⃣ Ambil COA
+  const { data: coaData, error: coaError } = await db
+    .from("coa")
+    .select("id_coa, tipe")
+    .returns<CoaRow[]>();
+
+  if (coaError || !coaData) {
+    return NextResponse.json({ error: "Gagal ambil COA" }, { status: 500 });
+  }
+
+  const coaMap = new Map<number, string>();
+  coaData.forEach((c) => {
+    coaMap.set(c.id_coa, c.tipe);
+  });
+
+  // 4️⃣ Hitung Neraca (HANYA TIPE NERACA)
+  const grouped: Record<string, number> = {};
+
+  detailData.forEach((row) => {
+    const tipe = coaMap.get(row.id_coa);
+    if (!tipe) return;
+
+    if (tipe !== "ASET" && tipe !== "LIABILITAS" && tipe !== "EKUITAS") {
+      return;
+    }
+
+    const debit = Number(row.debit);
+    const kredit = Number(row.kredit);
+
+    let saldo = 0;
+
+    if (tipe === "ASET") {
+      saldo = debit - kredit;
+    } else {
+      saldo = kredit - debit;
+    }
+
+    grouped[tipe] = (grouped[tipe] ?? 0) + saldo;
+  });
+
+  const result: NeracaRow[] = [
+    { tipe: "ASET", saldo: grouped["ASET"] ?? 0 },
+    { tipe: "LIABILITAS", saldo: grouped["LIABILITAS"] ?? 0 },
+    { tipe: "EKUITAS", saldo: grouped["EKUITAS"] ?? 0 },
+  ];
+
+  const buffer = await buildNeracaExcelWithQR(result);
 
   return new NextResponse(buffer, {
     headers: {

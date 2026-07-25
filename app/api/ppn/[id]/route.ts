@@ -1,75 +1,131 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { ppnSchema } from "@/lib/validators/ppn";
-import { calcPPN } from "@/lib/pajak/calc-ppn";
+import {
+  ppnSchema,
+  normalizePpn,
+  validatePpn,
+  hitungPpn,
+} from "@/lib/validators/ppn";
 
-type Params = { id: string };
-
-export async function PUT(
-  req: Request,
-  { params }: { params: Promise<Params> },
+/* =========================
+   GET BY ID
+========================= */
+export async function GET(
+  _: NextRequest,
+  context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id } = await params;
-  const ppnId = Number(id);
+  const params = await context.params; // ✅ WAJIB
 
-  if (!Number.isInteger(ppnId)) {
-    return NextResponse.json({ error: "ID PPN tidak valid" }, { status: 400 });
+  const id = Number(params.id);
+
+  if (!id || Number.isNaN(id)) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
   }
-
-  const body: unknown = await req.json();
-  const parsed = ppnSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
-
-  const { id_transaksi, jenis_ppn, nilai_dasar, tarif_ppn, tanggal_transaksi } =
-    parsed.data;
-
-  const nilai_ppn = calcPPN(nilai_dasar, tarif_ppn);
 
   const { data, error } = await db
     .from("ppn")
-    .update({
-      id_transaksi,
-      jenis_ppn,
-      nilai_dasar,
-      tarif_ppn,
-      nilai_ppn,
-      tanggal_transaksi,
-    })
-    .eq("id", ppnId)
-    .select(
-      "id,id_transaksi,jenis_ppn,nilai_dasar,tarif_ppn,nilai_ppn,tanggal_transaksi",
-    )
+    .select("*")
+    .eq("id", id)
     .single();
 
-  if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Gagal update PPN" },
-      { status: 500 },
-    );
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 404 });
   }
 
   return NextResponse.json(data);
 }
 
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Promise<Params> },
+/* =========================
+   PUT
+========================= */
+export async function PUT(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id } = await params;
-  const ppnId = Number(id);
+  const params = await context.params; // ✅ WAJIB
 
-  if (!Number.isInteger(ppnId)) {
-    return NextResponse.json({ error: "ID PPN tidak valid" }, { status: 400 });
+  const id = Number(params.id);
+
+  if (!id || Number.isNaN(id)) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
   }
 
-  const { error } = await db.from("ppn").delete().eq("id", ppnId);
+  const raw: unknown = await req.json();
+
+  if (typeof raw !== "object" || raw === null) {
+    return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
+  }
+
+  const bodyRaw = raw as Record<string, unknown>;
+
+  const body = {
+    id_transaksi: Number(bodyRaw.id_transaksi),
+    jenis_ppn: String(bodyRaw.jenis_ppn),
+    nilai_dasar: Number(bodyRaw.nilai_dasar),
+    tarif_ppn: Number(bodyRaw.tarif_ppn),
+    nilai_ppn: Number(bodyRaw.nilai_ppn),
+    tanggal_transaksi: String(bodyRaw.tanggal_transaksi),
+  };
+
+  const parsed = ppnSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Data tidak valid" }, { status: 400 });
+  }
+
+  const input = parsed.data;
+
+  const dataNorm = normalizePpn(input);
+  validatePpn(dataNorm);
+
+  const hitung = hitungPpn(dataNorm);
+
+  const { data, error } = await db
+    .from("ppn")
+    .update({
+      id_transaksi: dataNorm.id_transaksi,
+      jenis_ppn: dataNorm.jenis_ppn,
+      nilai_dasar: dataNorm.nilai_dasar,
+      tarif_ppn: dataNorm.tarif_ppn,
+      nilai_ppn: hitung.nilai_ppn,
+      tanggal_transaksi: dataNorm.tanggal_transaksi,
+    })
+    .eq("id", id)
+    .select()
+    .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    message: "Updated",
+    data,
+  });
+}
+
+/* =========================
+   DELETE
+========================= */
+export async function DELETE(
+  _: NextRequest,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const params = await context.params; // ✅ WAJIB
+
+  const id = Number(params.id);
+
+  if (!id || Number.isNaN(id)) {
+    return NextResponse.json({ error: "ID tidak valid" }, { status: 400 });
+  }
+
+  const { error } = await db.from("ppn").delete().eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    message: "Deleted",
+  });
 }

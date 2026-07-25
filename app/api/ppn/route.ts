@@ -1,80 +1,155 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { ppnSchema } from "@/lib/validators/ppn";
-import { calcPPN } from "@/lib/pajak/calc-ppn";
+import {
+  ppnSchema,
+  normalizePpn,
+  validatePpn,
+  hitungPpn,
+} from "@/lib/validators/ppn";
+import { postPpn } from "@/lib/accounting/postPpn";
 
-type PPNRow = {
-  id: number;
-  id_transaksi: number;
-  jenis_ppn: "keluaran" | "masukan";
-  nilai_dasar: number;
-  tarif_ppn: number;
-  nilai_ppn: number;
-  tanggal_transaksi: string;
-};
-
+/* =========================
+   GET ALL
+========================= */
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
     .from("ppn")
     .select(
-      "id,id_transaksi,jenis_ppn,nilai_dasar,tarif_ppn,nilai_ppn,tanggal_transaksi",
+      `
+    *,
+    vendors (
+      id,
+      kode_vendor,
+      nama_vendor,
+      npwp,
+      nama_npwp,
+      alamat_npwp,
+      pkp,
+      jenis_pajak
     )
-    .order("tanggal_transaksi", { ascending: false });
+  `,
+    )
+    .order("id", { ascending: false });
 
-  if (error || !data) {
-    return NextResponse.json(
-      { error: "Gagal ambil data PPN" },
-      { status: 500 },
-    );
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const result: PPNRow[] = data.map((r) => ({
-    id: r.id as number,
-    id_transaksi: r.id_transaksi as number,
-    jenis_ppn: r.jenis_ppn as "keluaran" | "masukan",
-    nilai_dasar: Number(r.nilai_dasar),
-    tarif_ppn: Number(r.tarif_ppn),
-    nilai_ppn: Number(r.nilai_ppn),
-    tanggal_transaksi: r.tanggal_transaksi as string,
-  }));
-
-  return NextResponse.json(result);
+  return NextResponse.json(data);
 }
 
-export async function POST(req: Request): Promise<NextResponse> {
-  const body: unknown = await req.json();
-  const parsed = ppnSchema.safeParse(body);
+/* =========================
+   POST
+========================= */
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  try {
+    const raw: unknown = await req.json();
 
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
+    if (typeof raw !== "object" || raw === null) {
+      return NextResponse.json({ error: "Body tidak valid" }, { status: 400 });
+    }
 
-  const { id_transaksi, jenis_ppn, nilai_dasar, tarif_ppn, tanggal_transaksi } =
-    parsed.data;
+    const bodyRaw = raw as Record<string, unknown>;
 
-  const nilai_ppn = calcPPN(nilai_dasar, tarif_ppn);
+    /* =========================
+       NORMALIZE NUMBER
+    ========================= */
+    const body = {
+      id_transaksi: Number(bodyRaw.id_transaksi),
 
-  const { data, error } = await db
-    .from("ppn")
-    .insert({
-      id_transaksi,
-      jenis_ppn,
-      nilai_dasar,
-      tarif_ppn,
-      nilai_ppn,
-      tanggal_transaksi,
-    })
-    .select(
-      "id,id_transaksi,jenis_ppn,nilai_dasar,tarif_ppn,nilai_ppn,tanggal_transaksi",
-    )
-    .single();
+      vendor_id:
+        bodyRaw.vendor_id === null || bodyRaw.vendor_id === undefined
+          ? null
+          : Number(bodyRaw.vendor_id),
 
-  if (error || !data) {
+      nomor_seri:
+        typeof bodyRaw.nomor_seri === "string" ? bodyRaw.nomor_seri : null,
+
+      keterangan:
+        typeof bodyRaw.keterangan === "string" ? bodyRaw.keterangan : null,
+
+      jenis_ppn: String(bodyRaw.jenis_ppn),
+
+      nilai_dasar: Number(bodyRaw.nilai_dasar),
+
+      tarif_ppn: Number(bodyRaw.tarif_ppn),
+
+      nilai_ppn: Number(bodyRaw.nilai_ppn),
+
+      tanggal_transaksi: String(bodyRaw.tanggal_transaksi),
+    };
+
+    /* =========================
+       VALIDASI
+    ========================= */
+    const parsed = ppnSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: "Data tidak valid",
+          issues: parsed.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    const input = parsed.data;
+
+    const dataNorm = normalizePpn(input);
+    validatePpn(dataNorm);
+
+    const hitung = hitungPpn(dataNorm);
+
+    /* =========================
+       INSERT DB
+    ========================= */
+    const { data, error } = await db
+      .from("ppn")
+      .insert({
+        id_transaksi: dataNorm.id_transaksi,
+        jenis_ppn: dataNorm.jenis_ppn,
+        nilai_dasar: dataNorm.nilai_dasar,
+        tarif_ppn: dataNorm.tarif_ppn,
+        nilai_ppn: hitung.nilai_ppn,
+        tanggal_transaksi: dataNorm.tanggal_transaksi,
+        vendor_id: dataNorm.vendor_id,
+        nomor_seri: dataNorm.nomor_seri,
+        keterangan: dataNorm.keterangan,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json(
+        { error: error?.message ?? "Insert gagal" },
+        { status: 500 },
+      );
+    }
+
+    /* =========================
+       POST JURNAL
+    ========================= */
+    try {
+      await postPpn({
+        ...dataNorm,
+        nilai_ppn: hitung.nilai_ppn,
+      });
+    } catch (err: unknown) {
+      return NextResponse.json(
+        { error: (err as Error).message },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({
+      message: "Berhasil",
+      data,
+    });
+  } catch (error: unknown) {
     return NextResponse.json(
-      { error: error?.message ?? "Gagal insert PPN" },
+      { error: (error as Error).message },
       { status: 500 },
     );
   }
-
-  return NextResponse.json(data, { status: 201 });
 }

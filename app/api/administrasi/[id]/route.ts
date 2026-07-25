@@ -5,20 +5,24 @@ import {
   AdministrasiInput,
 } from "@/lib/validators/administrasi";
 
-interface Params {
-  params: Promise<{ id: string }>;
-}
+type Params = { id: string };
 
 /* ======================
    PUT ADMINISTRASI
 ====================== */
-export async function PUT(req: Request, { params }: Params) {
+export async function PUT(
+  req: Request,
+  { params }: { params: Promise<Params> },
+): Promise<NextResponse> {
   try {
     const { id } = await params;
     const administrasiId = Number(id);
 
-    if (Number.isNaN(administrasiId)) {
-      return NextResponse.json({ message: "ID tidak valid" }, { status: 400 });
+    if (!Number.isInteger(administrasiId)) {
+      return NextResponse.json(
+        { message: "ID administrasi tidak valid" },
+        { status: 400 },
+      );
     }
 
     const body: unknown = await req.json();
@@ -29,14 +33,18 @@ export async function PUT(req: Request, { params }: Params) {
       .update(parsed)
       .eq("id", administrasiId);
 
-    if (error) throw error;
+    if (error) {
+      return NextResponse.json(
+        { message: "Gagal update administrasi" },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({ message: "Administrasi diperbarui" });
-  } catch (error) {
-    console.error("PUT ADMINISTRASI ERROR:", error);
+  } catch {
     return NextResponse.json(
       { message: "Gagal update administrasi" },
-      { status: 500 },
+      { status: 400 },
     );
   }
 }
@@ -44,13 +52,19 @@ export async function PUT(req: Request, { params }: Params) {
 /* ======================
    DELETE ADMINISTRASI
 ====================== */
-export async function DELETE(_: Request, { params }: Params) {
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<Params> },
+): Promise<NextResponse> {
   try {
     const { id } = await params;
     const administrasiId = Number(id);
 
-    if (Number.isNaN(administrasiId)) {
-      return NextResponse.json({ message: "ID tidak valid" }, { status: 400 });
+    if (!Number.isInteger(administrasiId)) {
+      return NextResponse.json(
+        { message: "ID administrasi tidak valid" },
+        { status: 400 },
+      );
     }
 
     const { error } = await db
@@ -58,14 +72,18 @@ export async function DELETE(_: Request, { params }: Params) {
       .delete()
       .eq("id", administrasiId);
 
-    if (error) throw error;
+    if (error) {
+      return NextResponse.json(
+        { message: "Gagal hapus administrasi" },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({ message: "Administrasi dihapus" });
-  } catch (error) {
-    console.error("DELETE ADMINISTRASI ERROR:", error);
+  } catch {
     return NextResponse.json(
       { message: "Gagal hapus administrasi" },
-      { status: 500 },
+      { status: 400 },
     );
   }
 }

@@ -1,24 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
-
-/* =========================
-   ZOD SCHEMA
-========================= */
-
-const divisionSchema = z.object({
-  estate_id: z.string().uuid("Estate ID tidak valid"),
-  code: z.string().min(1).max(20),
-  name: z.string().min(1).max(100),
-  area_ha: z.coerce.number().min(0, "Area tidak boleh minus"),
-  is_active: z.boolean().optional(),
-});
-
-type DivisionInput = z.infer<typeof divisionSchema>;
-
-/* =========================
-   GET ALL DIVISIONS
-========================= */
+import { divisionSchema } from "@/lib/validators/divisions";
+import { ZodError } from "zod";
 
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
@@ -33,28 +16,21 @@ export async function GET(): Promise<NextResponse> {
   return NextResponse.json(data, { status: 200 });
 }
 
-/* =========================
-   POST CREATE DIVISION
-========================= */
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body: unknown = await request.json();
 
-    const parsed = divisionSchema.safeParse(body);
-
-    if (!parsed.success) {
-      return NextResponse.json(
-        { errors: parsed.error.flatten() },
-        { status: 400 },
-      );
-    }
-
-    const input: DivisionInput = parsed.data;
+    const parsed = divisionSchema.parse(body);
 
     const { data, error } = await db
       .from("divisions")
-      .insert(input)
+      .insert({
+        estate_id: parsed.estate_id,
+        code: parsed.code,
+        name: parsed.name,
+        area_ha: parsed.area_ha,
+        is_active: parsed.is_active ?? true,
+      })
       .select()
       .single();
 
@@ -63,7 +39,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json(data, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json({ errors: error.issues }, { status: 400 });
+    }
+
     return NextResponse.json(
       { message: "Invalid request body" },
       { status: 400 },

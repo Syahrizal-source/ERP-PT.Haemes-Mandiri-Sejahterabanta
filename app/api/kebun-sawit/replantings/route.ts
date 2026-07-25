@@ -1,45 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 
-/* =========================
-   ZOD SCHEMA
-========================= */
+import {
+  replantingCreateSchema,
+  ReplantingCreateInput,
+} from "@/lib/validators/replantings";
 
-const replantingSchema = z.object({
-  block_id: z.string().uuid("Block ID tidak valid"),
-
-  activity_date: z
-    .string()
-    .min(1, "Tanggal wajib diisi")
-    .refine((value: string) => !isNaN(Date.parse(value)), {
-      message: "Tanggal tidak valid",
-    }),
-
-  activity_type: z.enum(["TEBANG", "CHIPPING", "TANAM_ULANG", "BIBIT_MASUK"]),
-
-  quantity: z.coerce
-    .number()
-    .int("Quantity harus bilangan bulat")
-    .min(0, "Quantity tidak boleh minus")
-    .optional(),
-
-  cost: z.coerce.number().min(0, "Biaya tidak boleh minus"),
-
-  notes: z.string().max(500).optional(),
-});
-
-type ReplantingInput = z.infer<typeof replantingSchema>;
+import { getCoaMappingTransaction } from "@/lib/accounting/getcoamappingtransaction";
+import { postJournal } from "@/lib/accounting/postJournal";
+import { JurnalLine } from "@/types/accounting";
 
 /* =========================
-   GET
+   GET REPLANTING
 ========================= */
 
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
     .from("replantings")
     .select("*")
-    .order("activity_date", { ascending: false });
+    .order("tanggal", { ascending: false });
 
   if (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
@@ -49,29 +28,90 @@ export async function GET(): Promise<NextResponse> {
 }
 
 /* =========================
-   POST
+   CREATE REPLANTING
 ========================= */
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const body: unknown = await request.json();
-    const parsed = replantingSchema.safeParse(body);
+    const body: unknown = await req.json();
+
+    const parsed = replantingCreateSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
-        { errors: parsed.error.flatten() },
+        { errors: parsed.error.issues },
         { status: 400 },
       );
     }
 
-    const input: ReplantingInput = parsed.data;
+    const input: ReplantingCreateInput = parsed.data;
 
-    const quantityValue: number | null =
-      input.quantity !== undefined ? input.quantity : null;
+    const { data: block } = await db
+      .from("blocks")
+      .select(
+        `
+    division_id,
+    id_cost_center,
+    code
+  `,
+      )
+      .eq("id", input.block_id)
+      .single();
 
-    if (quantityValue !== null && quantityValue < 0) {
+    if (!block) {
       return NextResponse.json(
-        { message: "Quantity tidak valid" },
+        { message: "Block tidak ditemukan" },
+        { status: 400 },
+      );
+    }
+
+    const { data: division } = await db
+      .from("divisions")
+      .select(
+        `
+  estate_id,
+  code
+`,
+      )
+      .eq("id", block.division_id)
+      .single();
+
+    if (!division) {
+      return NextResponse.json(
+        { message: "Division tidak ditemukan" },
+        { status: 400 },
+      );
+    }
+
+    const { data: estate } = await db
+      .from("estates")
+      .select(
+        `
+  region_id,
+  code,
+  name
+`,
+      )
+      .eq("id", division.estate_id)
+      .single();
+
+    if (!estate) {
+      return NextResponse.json(
+        { message: "Estate tidak ditemukan" },
+        { status: 400 },
+      );
+    }
+
+    const { data: costCenter } = await db
+      .from("cost_centers")
+      .select("id_cost_center")
+      .eq("region_id", estate.region_id)
+      .limit(1)
+      .single();
+
+    if (!costCenter) {
+      return NextResponse.json(
+        { message: "Cost center tidak ditemukan" },
         { status: 400 },
       );
     }
@@ -80,11 +120,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .from("replantings")
       .insert({
         block_id: input.block_id,
-        activity_date: input.activity_date,
-        activity_type: input.activity_type,
-        quantity: quantityValue,
-        cost: input.cost,
-        notes: input.notes ?? null,
+        tanggal: input.tanggal,
+        pokok_ditebang: input.pokok_ditebang,
+        pokok_ditanam: input.pokok_ditanam,
+        biaya_total: input.biaya_total,
+        keterangan: input.keterangan ?? null,
       })
       .select()
       .single();
@@ -93,11 +133,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ message: error.message }, { status: 500 });
     }
 
+    /* =========================
+       POSTING JURNAL
+    ========================= */
+
+    const mapping = await getCoaMappingTransaction(
+      "REPLANTING",
+      estate.region_id,
+    );
+
+    const amount = Number(input.biaya_total);
+
+    if (amount <= 0) {
+      throw new Error("Biaya replanting harus lebih besar dari 0");
+    }
+
+    const lines: JurnalLine[] = mapping.map((m) => ({
+      id_coa: m.id_coa,
+      debit: m.posisi === "DEBIT" ? input.biaya_total : 0,
+      kredit: m.posisi === "KREDIT" ? input.biaya_total : 0,
+      id_cost_center: block.id_cost_center,
+    }));
+
+    await postJournal({
+      tanggal: input.tanggal,
+      no_bukti: `RPL-${data.id}`,
+      keterangan: "Biaya Replanting Kebun",
+      sumber: "KEBUN",
+      modul: "REPLANTING",
+      ref_id: data.id,
+      lines,
+    });
+
     return NextResponse.json(data, { status: 201 });
-  } catch {
+  } catch (error) {
     return NextResponse.json(
-      { message: "Invalid request body" },
-      { status: 400 },
+      {
+        message:
+          error instanceof Error ? error.message : "Internal Server Error",
+      },
+      { status: 500 },
     );
   }
 }

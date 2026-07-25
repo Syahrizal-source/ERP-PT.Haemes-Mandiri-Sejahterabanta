@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
+import { z } from "zod";
+
+import {
+  workPremiumUpdateSchema,
+  WorkPremiumUpdateInput,
+} from "@/lib/validators/work-premiums";
 
 /* =========================
    PARAM VALIDATION
@@ -10,46 +15,50 @@ const paramSchema = z.object({
   id: z.string().uuid("ID tidak valid"),
 });
 
+function getZodErrors(error: z.ZodError): string[] {
+  return error.issues.map((issue) => issue.message);
+}
+
 /* =========================
-   UPDATE SCHEMA
+   GET DETAIL
 ========================= */
 
-const updateSchema = z.object({
-  employee_id: z.string().uuid("Employee ID tidak valid").optional(),
+export async function GET(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const params = await context.params;
 
-  block_id: z.string().uuid("Block ID tidak valid").optional(),
+  const parsedParams = paramSchema.safeParse(params);
 
-  work_date: z
-    .string()
-    .refine((val: string) => !isNaN(Date.parse(val)), {
-      message: "Tanggal tidak valid",
-    })
-    .optional(),
+  if (!parsedParams.success) {
+    return NextResponse.json(
+      { errors: getZodErrors(parsedParams.error) },
+      { status: 400 },
+    );
+  }
 
-  work_type: z.string().min(1).max(50).optional(),
+  const id: string = parsedParams.data.id;
 
-  work_result: z.coerce
-    .number()
-    .min(0, "Hasil kerja tidak boleh minus")
-    .optional(),
+  const { data, error } = await db
+    .from("work_premiums")
+    .select("*")
+    .eq("id", id)
+    .single();
 
-  rate: z.coerce.number().min(0, "Tarif tidak boleh minus").optional(),
+  if (error) {
+    return NextResponse.json({ message: error.message }, { status: 500 });
+  }
 
-  pph21_rate: z.coerce
-    .number()
-    .min(0, "Tarif PPh21 tidak boleh minus")
-    .max(100, "Tarif PPh21 maksimal 100%")
-    .optional(),
-});
-
-type UpdateInput = z.infer<typeof updateSchema>;
+  return NextResponse.json(data, { status: 200 });
+}
 
 /* =========================
-   PUT (UPDATE)
+   UPDATE
 ========================= */
 
 export async function PUT(
-  request: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
@@ -59,76 +68,79 @@ export async function PUT(
 
     if (!parsedParams.success) {
       return NextResponse.json(
-        { errors: parsedParams.error.flatten() },
+        { errors: getZodErrors(parsedParams.error) },
         { status: 400 },
       );
     }
 
     const id: string = parsedParams.data.id;
 
-    const body: unknown = await request.json();
-    const parsedBody = updateSchema.safeParse(body);
+    const body: unknown = await req.json();
+
+    const parsedBody = workPremiumUpdateSchema.safeParse(body);
 
     if (!parsedBody.success) {
       return NextResponse.json(
-        { errors: parsedBody.error.flatten() },
+        { errors: getZodErrors(parsedBody.error) },
         { status: 400 },
       );
     }
 
-    const input: UpdateInput = parsedBody.data;
+    const payload: WorkPremiumUpdateInput = parsedBody.data;
 
-    /* =========================
-       HITUNG ULANG PREMI
-    ========================= */
+    let totalPremium: number | undefined;
+    let pph21Amount: number | undefined;
+    let totalAfterTax: number | undefined;
 
-    const workResult: number = input.work_result ?? 0;
-    const rate: number = input.rate ?? 0;
-    const totalPremium: number = workResult * rate;
+    if (payload.work_result !== undefined && payload.rate !== undefined) {
+      totalPremium = payload.work_result * payload.rate;
 
-    if (totalPremium < 0) {
-      return NextResponse.json(
-        { message: "Perhitungan premi tidak valid" },
-        { status: 400 },
-      );
+      if (payload.pph21_rate !== undefined) {
+        pph21Amount = (totalPremium * payload.pph21_rate) / 100;
+        totalAfterTax = totalPremium - pph21Amount;
+      }
     }
 
-    const pphRate: number = input.pph21_rate ?? 0;
-    const pphAmount: number = (totalPremium * pphRate) / 100;
+    const updateData: {
+      employee_id?: string;
+      block_id?: string | null;
+      work_date?: string;
+      work_type?: string;
+      work_result?: number;
+      rate?: number;
+      pph21_rate?: number;
+      pph21_amount?: number;
+      total_after_tax?: number;
+    } = {
+      ...payload,
+    };
 
-    if (pphAmount < 0) {
-      return NextResponse.json(
-        { message: "Perhitungan PPh21 tidak valid" },
-        { status: 400 },
-      );
+    if (pph21Amount !== undefined) {
+      updateData.pph21_amount = pph21Amount;
     }
 
-    const { data, error } = await db
+    if (totalAfterTax !== undefined) {
+      updateData.total_after_tax = totalAfterTax;
+    }
+
+    const { error } = await db
       .from("work_premiums")
-      .update({
-        employee_id: input.employee_id,
-        block_id: input.block_id ?? null,
-        work_date: input.work_date,
-        work_type: input.work_type,
-        work_result: input.work_result,
-        rate: input.rate,
-        pph21_rate: pphRate,
-        pph21_amount: pphAmount,
-      })
-      .eq("id", id)
-      .select()
-      .single();
+      .update(updateData)
+      .eq("id", id);
 
     if (error) {
       return NextResponse.json({ message: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(data, { status: 200 });
-  } catch {
     return NextResponse.json(
-      { message: "Invalid request body" },
-      { status: 400 },
+      { message: "Work premium berhasil diupdate" },
+      { status: 200 },
     );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
+
+    return NextResponse.json({ message }, { status: 500 });
   }
 }
 
@@ -137,7 +149,7 @@ export async function PUT(
 ========================= */
 
 export async function DELETE(
-  _request: NextRequest,
+  _req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const params = await context.params;
@@ -146,7 +158,7 @@ export async function DELETE(
 
   if (!parsedParams.success) {
     return NextResponse.json(
-      { errors: parsedParams.error.flatten() },
+      { errors: getZodErrors(parsedParams.error) },
       { status: 400 },
     );
   }

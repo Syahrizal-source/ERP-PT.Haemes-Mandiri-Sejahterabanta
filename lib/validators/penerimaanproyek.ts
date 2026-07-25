@@ -1,17 +1,11 @@
 import { z } from "zod";
 
-export const penerimaanProyekSchema = z.object({
-  proyek_id: z.number(),
-  tanggal: z.string(), // format YYYY-MM-DD
-  deskripsi: z.string(),
-  no_kwitansi: z
-    .string()
-    .regex(
-      /^\d+\/[A-Z]+-[A-Z]+\/[IVXLCDM]+\/\d{2}$/,
-      "Format no_kwitansi tidak valid (contoh: 1/HAE-IAP/VIII/25)"
-    ),
-  jenis_pembayaran: z.string(), // contoh: BNI/12965308
-  tagihan: z.number(),
-  pot_lain: z.number().optional().default(0),
-  barter: z.boolean().optional().default(false),
+export const ProyekPenerimaanSchema = z.object({
+  id_tagihan: z.string().uuid(),
+  tanggal: z.string().min(1),
+  jumlah: z.number().min(0),
+  metode: z.string().optional(),
+  bank: z.string().optional(),
 });
+
+export type ProyekPenerimaanInput = z.infer<typeof ProyekPenerimaanSchema>;

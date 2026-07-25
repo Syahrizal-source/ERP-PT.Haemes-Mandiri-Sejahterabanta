@@ -1,36 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/supabase/server";
 
+import {
+  itemUpdateSchema,
+  itemParamSchema,
+  ItemUpdateInput,
+} from "@/lib/validators/items";
+
 /* =========================
-   PARAM VALIDATION
+   GET DETAIL ITEM
 ========================= */
 
-const paramSchema = z.object({
-  id: z.string().uuid("ID tidak valid"),
-});
+export async function GET(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  try {
+    const { id } = await context.params;
+
+    const parsedId = itemParamSchema.safeParse({ id });
+
+    if (!parsedId.success) {
+      return NextResponse.json(
+        { errors: parsedId.error.issues },
+        { status: 400 },
+      );
+    }
+
+    const { data, error } = await db
+      .from("items")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      return NextResponse.json({ message: error.message }, { status: 404 });
+    }
+
+    return NextResponse.json(data, { status: 200 });
+  } catch {
+    return NextResponse.json(
+      { message: "Gagal mengambil data item" },
+      { status: 500 },
+    );
+  }
+}
 
 /* =========================
-   UPDATE SCHEMA
-========================= */
-
-const updateSchema = z.object({
-  name: z.string().min(1, "Nama barang wajib diisi").max(100).optional(),
-
-  category: z.string().max(50).optional(),
-
-  unit: z.string().min(1, "Satuan wajib diisi").max(20).optional(),
-
-  minimum_stock: z.coerce
-    .number()
-    .min(0, "Minimum stok tidak boleh minus")
-    .optional(),
-});
-
-type UpdateInput = z.infer<typeof updateSchema>;
-
-/* =========================
-   PUT (UPDATE)
+   UPDATE ITEM
 ========================= */
 
 export async function PUT(
@@ -38,30 +55,29 @@ export async function PUT(
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const params = await context.params;
+    const { id } = await context.params;
 
-    const parsedParams = paramSchema.safeParse(params);
+    const parsedId = itemParamSchema.safeParse({ id });
 
-    if (!parsedParams.success) {
+    if (!parsedId.success) {
       return NextResponse.json(
-        { errors: parsedParams.error.flatten() },
+        { errors: parsedId.error.issues },
         { status: 400 },
       );
     }
 
-    const id: string = parsedParams.data.id;
-
     const body: unknown = await request.json();
-    const parsedBody = updateSchema.safeParse(body);
+
+    const parsedBody = itemUpdateSchema.safeParse(body);
 
     if (!parsedBody.success) {
       return NextResponse.json(
-        { errors: parsedBody.error.flatten() },
+        { errors: parsedBody.error.issues },
         { status: 400 },
       );
     }
 
-    const input: UpdateInput = parsedBody.data;
+    const input: ItemUpdateInput = parsedBody.data;
 
     const { data, error } = await db
       .from("items")
@@ -89,25 +105,23 @@ export async function PUT(
 }
 
 /* =========================
-   DELETE
+   DELETE ITEM
 ========================= */
 
 export async function DELETE(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const params = await context.params;
+  const { id } = await context.params;
 
-  const parsedParams = paramSchema.safeParse(params);
+  const parsedId = itemParamSchema.safeParse({ id });
 
-  if (!parsedParams.success) {
+  if (!parsedId.success) {
     return NextResponse.json(
-      { errors: parsedParams.error.flatten() },
+      { errors: parsedId.error.issues },
       { status: 400 },
     );
   }
-
-  const id: string = parsedParams.data.id;
 
   const { error } = await db.from("items").delete().eq("id", id);
 

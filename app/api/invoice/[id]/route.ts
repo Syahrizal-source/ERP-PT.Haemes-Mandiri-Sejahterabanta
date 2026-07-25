@@ -17,7 +17,49 @@ type InvoiceRow = {
 };
 
 /* =========================
-   PUT: Update Invoice
+   GET: Detail Invoice
+========================= */
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<Params> },
+): Promise<NextResponse> {
+  const { id } = await params;
+  const invoiceId = Number(id);
+
+  if (!Number.isInteger(invoiceId)) {
+    return NextResponse.json(
+      { error: "ID invoice tidak valid" },
+      { status: 400 },
+    );
+  }
+
+  const { data, error } = await db
+    .from("invoice")
+    .select("id,tanggal,no_invoice,customer,nominal,status")
+    .eq("id", invoiceId)
+    .single();
+
+  if (error || !data) {
+    return NextResponse.json(
+      { error: "Invoice tidak ditemukan" },
+      { status: 404 },
+    );
+  }
+
+  const row: InvoiceRow = {
+    id: data.id as number,
+    tanggal: data.tanggal as string,
+    no_invoice: data.no_invoice as string,
+    customer: data.customer as string,
+    nominal: Number(data.nominal),
+    status: data.status as InvoiceRow["status"],
+  };
+
+  return NextResponse.json(row);
+}
+
+/* =========================
+   PUT
 ========================= */
 export async function PUT(
   req: Request,
@@ -42,31 +84,16 @@ export async function PUT(
 
   const { tanggal, no_invoice, customer, nominal, status } = parsed.data;
 
-  const { data: existing, error: existingError } = await db
+  const { data: existing } = await db
     .from("invoice")
     .select("id")
     .eq("id", invoiceId)
     .single();
 
-  if (existingError || !existing) {
+  if (!existing) {
     return NextResponse.json(
       { error: "Invoice tidak ditemukan" },
       { status: 404 },
-    );
-  }
-
-  // Guard: no_invoice unik
-  const { data: duplicate, error: duplicateError } = await db
-    .from("invoice")
-    .select("id")
-    .eq("no_invoice", no_invoice)
-    .neq("id", invoiceId)
-    .single();
-
-  if (duplicateError === null && duplicate) {
-    return NextResponse.json(
-      { error: "No invoice sudah dipakai" },
-      { status: 400 },
     );
   }
 
@@ -90,20 +117,11 @@ export async function PUT(
     );
   }
 
-  const row: InvoiceRow = {
-    id: data.id as number,
-    tanggal: data.tanggal as string,
-    no_invoice: data.no_invoice as string,
-    customer: data.customer as string,
-    nominal: Number(data.nominal),
-    status: data.status as InvoiceRow["status"],
-  };
-
-  return NextResponse.json(row);
+  return NextResponse.json(data);
 }
 
 /* =========================
-   DELETE: Delete Invoice
+   DELETE
 ========================= */
 export async function DELETE(
   _req: Request,
@@ -119,13 +137,13 @@ export async function DELETE(
     );
   }
 
-  const { data: existing, error: existingError } = await db
+  const { data: existing } = await db
     .from("invoice")
     .select("id")
     .eq("id", invoiceId)
     .single();
 
-  if (existingError || !existing) {
+  if (!existing) {
     return NextResponse.json(
       { error: "Invoice tidak ditemukan" },
       { status: 404 },

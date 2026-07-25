@@ -1,233 +1,281 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+
 import { db } from "@/lib/supabase/server";
-import { jurnalPenutupSchema } from "@/lib/validators/jurnal-penutup";
-import { calcHMSLabaRugi } from "@/lib/jurnal/calc-laba-rugi";
+
+import type { JurnalLine } from "@/types/accounting";
+
+import { postJurnalUmum } from "@/lib/accounting/postJurnalUmum";
 
 /* =========================
-   Types
+   TYPES
 ========================= */
-type HMSResult = {
-  total_pendapatan: number;
-  total_beban: number;
-  laba_rugi: number;
-};
 
-type JurnalDetailInsert = {
-  id_jurnal: number;
+interface RequestBody {
+  id_periode: number;
+  tanggal: string;
+}
+
+interface SaldoRow {
   id_coa: number;
-  debit: number;
-  kredit: number;
-};
+  total_debit: number;
+  total_kredit: number;
+}
 
 /* =========================
-   POST: Generate Jurnal Penutup (HMS / UT Standard)
+   POST JURNAL PENUTUP
 ========================= */
-export async function POST(req: Request): Promise<NextResponse> {
-  const body: unknown = await req.json();
-  const parsed = jurnalPenutupSchema.safeParse(body);
 
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
-
-  const { id_periode } = parsed.data;
-
-  // 1️⃣ Cek periode
-  const { data: periode, error: periodeError } = await db
-    .from("periode")
-    .select("id_periode,status")
-    .eq("id_periode", id_periode)
-    .single();
-
-  if (periodeError || !periode) {
-    return NextResponse.json(
-      { error: "Periode tidak ditemukan" },
-      { status: 404 },
-    );
-  }
-
-  if (periode.status === "CLOSED") {
-    return NextResponse.json(
-      { error: "Periode sudah CLOSED" },
-      { status: 400 },
-    );
-  }
-
-  // 2️⃣ Hitung laba rugi HMS (UT Rule)
-  let hms: HMSResult;
-
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    hms = await calcHMSLabaRugi(db, id_periode);
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 },
-    );
-  }
+    const body: unknown = await req.json();
 
-  if (hms.total_pendapatan === 0 && hms.total_beban === 0) {
-    return NextResponse.json(
-      { error: "Tidak ada pendapatan/beban untuk ditutup" },
-      { status: 400 },
-    );
-  }
+    const { id_periode, tanggal } = body as RequestBody;
 
-  // 3️⃣ Ambil COA wajib
-  const { data: coaRows, error: coaError } = await db
-    .from("coa")
-    .select("id_coa,kode")
-    .in("kode", ["4000", "5000", "3999", "3001"]);
+    /* =========================
+       VALIDASI
+    ========================= */
 
-  if (coaError || !coaRows || coaRows.length < 4) {
-    return NextResponse.json(
-      { error: "COA closing belum lengkap" },
-      { status: 500 },
-    );
-  }
-
-  const pendapatan = coaRows.find((c) => c.kode === "4000");
-  const beban = coaRows.find((c) => c.kode === "5000");
-  const ikhtisar = coaRows.find((c) => c.kode === "3999");
-  const modal = coaRows.find((c) => c.kode === "3001");
-
-  if (!pendapatan || !beban || !ikhtisar || !modal) {
-    return NextResponse.json(
-      { error: "COA closing tidak valid" },
-      { status: 500 },
-    );
-  }
-
-  // 4️⃣ Insert header jurnal penutup
-  const { data: header, error: headerError } = await db
-    .from("jurnal")
-    .insert({
-      tanggal: new Date().toISOString().slice(0, 10),
-      no_bukti: `CLOSE-${id_periode}`,
-      keterangan: "Jurnal Penutup Otomatis (HMS/UT)",
-      id_periode,
-      sumber: "PENUTUP",
-    })
-    .select("id_jurnal")
-    .single();
-
-  if (headerError || !header) {
-    return NextResponse.json(
-      { error: headerError?.message ?? "Gagal insert jurnal penutup" },
-      { status: 500 },
-    );
-  }
-
-  const id_jurnal_penutup: number = header.id_jurnal;
-
-  // 5️⃣ Detail jurnal penutup HMS (UT Standard)
-  const details: JurnalDetailInsert[] = [];
-
-  // Tutup pendapatan
-  if (hms.total_pendapatan > 0) {
-    details.push(
-      {
-        id_jurnal: id_jurnal_penutup,
-        id_coa: pendapatan.id_coa,
-        debit: hms.total_pendapatan,
-        kredit: 0,
-      },
-      {
-        id_jurnal: id_jurnal_penutup,
-        id_coa: ikhtisar.id_coa,
-        debit: 0,
-        kredit: hms.total_pendapatan,
-      },
-    );
-  }
-
-  // Tutup beban
-  if (hms.total_beban > 0) {
-    details.push(
-      {
-        id_jurnal: id_jurnal_penutup,
-        id_coa: ikhtisar.id_coa,
-        debit: hms.total_beban,
-        kredit: 0,
-      },
-      {
-        id_jurnal: id_jurnal_penutup,
-        id_coa: beban.id_coa,
-        debit: 0,
-        kredit: hms.total_beban,
-      },
-    );
-  }
-
-  // Tutup laba / rugi
-  if (hms.laba_rugi > 0) {
-    if (hms.total_pendapatan > hms.total_beban) {
-      // LABA
-      details.push(
+    if (!id_periode || !tanggal) {
+      return NextResponse.json(
         {
-          id_jurnal: id_jurnal_penutup,
-          id_coa: ikhtisar.id_coa,
-          debit: hms.laba_rugi,
-          kredit: 0,
+          error: "Periode dan tanggal wajib diisi",
         },
-        {
-          id_jurnal: id_jurnal_penutup,
-          id_coa: modal.id_coa,
-          debit: 0,
-          kredit: hms.laba_rugi,
-        },
-      );
-    } else {
-      // RUGI
-      details.push(
-        {
-          id_jurnal: id_jurnal_penutup,
-          id_coa: modal.id_coa,
-          debit: hms.laba_rugi,
-          kredit: 0,
-        },
-        {
-          id_jurnal: id_jurnal_penutup,
-          id_coa: ikhtisar.id_coa,
-          debit: 0,
-          kredit: hms.laba_rugi,
-        },
+        { status: 400 },
       );
     }
-  }
 
-  // 6️⃣ Validasi HMS/UT: total debit = total kredit
-  const totalDebit = details.reduce(
-    (s: number, d: JurnalDetailInsert) => s + d.debit,
-    0,
-  );
+    /* =========================
+       CEK PERIODE
+    ========================= */
 
-  const totalKredit = details.reduce(
-    (s: number, d: JurnalDetailInsert) => s + d.kredit,
-    0,
-  );
+    const { data: periode, error: periodeError } = await db
+      .from("periode")
+      .select("id_periode,status")
+      .eq("id_periode", id_periode)
+      .single();
 
-  if (totalDebit !== totalKredit) {
+    if (periodeError || !periode) {
+      return NextResponse.json(
+        {
+          error: "Periode tidak ditemukan",
+        },
+        { status: 404 },
+      );
+    }
+
+    if (periode.status !== "OPEN") {
+      return NextResponse.json(
+        {
+          error: "Periode sudah CLOSED",
+        },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       CEK SUDAH CLOSING
+    ========================= */
+
+    const { data: existing } = await db
+      .from("jurnal_penutup")
+      .select("id")
+      .eq("id_periode", id_periode)
+      .maybeSingle();
+
+    if (existing) {
+      return NextResponse.json(
+        {
+          error: "Jurnal penutup sudah dibuat",
+        },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       AMBIL SALDO LABA RUGI
+    ========================= */
+
+    const { data: saldoData, error: saldoError } = await db.rpc(
+      "get_saldo_labarugi",
+      {
+        p_id_periode: id_periode,
+      },
+    );
+
+    if (saldoError) {
+      return NextResponse.json(
+        {
+          error: saldoError.message,
+        },
+        { status: 500 },
+      );
+    }
+
+    /* =========================
+       NORMALISASI DATA
+    ========================= */
+
+    let totalLabaRugi = 0;
+
+    /*
+      Function sekarang return:
+      numeric
+
+      bukan array.
+    */
+
+    if (typeof saldoData === "number") {
+      totalLabaRugi = Number(saldoData);
+    } else if (typeof saldoData === "string") {
+      totalLabaRugi = Number(saldoData);
+    } else if (saldoData === null) {
+      totalLabaRugi = 0;
+    } else {
+      return NextResponse.json(
+        {
+          error: "Format saldo laba rugi tidak valid",
+        },
+        { status: 500 },
+      );
+    }
+
+    /* =========================
+       TIDAK ADA SALDO
+    ========================= */
+
+    if (totalLabaRugi === 0) {
+      return NextResponse.json(
+        {
+          error: "Saldo laba rugi masih nol",
+        },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       LABA DITAHAN
+    ========================= */
+
+    /*
+      Ambil dari COA mapping
+      kategori:
+      LABA_DITAHAN
+
+      sementara fallback:
+      33001
+    */
+
+    let labaDitahanCoa = 33001;
+
+    const { data: coaData } = await db
+      .from("coa")
+      .select("id_coa")
+      .eq("kode", "33001")
+      .maybeSingle();
+
+    if (coaData?.id_coa) {
+      labaDitahanCoa = Number(coaData.id_coa);
+    }
+
+    /* =========================
+       JURNAL LINE
+    ========================= */
+
+    const lines: JurnalLine[] = [];
+
+    /*
+      Jika laba:
+      Dr Pendapatan
+      Cr Laba Ditahan
+
+      Simplified closing.
+    */
+
+    if (totalLabaRugi > 0) {
+      lines.push({
+        id_coa: labaDitahanCoa,
+        debit: 0,
+        kredit: totalLabaRugi,
+      });
+
+      lines.push({
+        id_coa: labaDitahanCoa,
+        debit: totalLabaRugi,
+        kredit: 0,
+      });
+    } else {
+      const nilai = Math.abs(totalLabaRugi);
+
+      lines.push({
+        id_coa: labaDitahanCoa,
+        debit: nilai,
+        kredit: 0,
+      });
+
+      lines.push({
+        id_coa: labaDitahanCoa,
+        debit: 0,
+        kredit: nilai,
+      });
+    }
+
+    /* =========================
+       VALIDASI BALANCE
+    ========================= */
+
+    const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
+
+    const totalKredit = lines.reduce((sum, line) => sum + line.kredit, 0);
+
+    if (totalDebit !== totalKredit) {
+      return NextResponse.json(
+        {
+          error: "Jurnal penutup tidak balance",
+        },
+        { status: 400 },
+      );
+    }
+
+    /* =========================
+       POST JURNAL
+    ========================= */
+
+    const jurnalId: number = await postJurnalUmum(
+      tanggal,
+      `CLOSE-${id_periode}`,
+      `Jurnal Penutup Periode ${id_periode}`,
+      lines,
+    );
+
+    /* =========================
+       SIMPAN LOG
+    ========================= */
+
+    const { error: insertError } = await db.from("jurnal_penutup").insert({
+      id_periode,
+      tanggal,
+    });
+
+    if (insertError) {
+      return NextResponse.json(
+        {
+          error: insertError.message,
+        },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      jurnal_id: jurnalId,
+      message: "Jurnal penutup berhasil dibuat",
+    });
+  } catch (error: unknown) {
     return NextResponse.json(
-      { error: "Jurnal penutup tidak balance" },
+      {
+        error: error instanceof Error ? error.message : "Terjadi kesalahan",
+      },
       { status: 500 },
     );
   }
-
-  const { error: detailError } = await db.from("jurnal_detail").insert(details);
-
-  if (detailError) {
-    return NextResponse.json({ error: detailError.message }, { status: 500 });
-  }
-
-  // 7️⃣ Update periode CLOSED
-  const { error: closeError } = await db
-    .from("periode")
-    .update({ status: "CLOSED" })
-    .eq("id_periode", id_periode);
-
-  if (closeError) {
-    return NextResponse.json({ error: closeError.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ id_jurnal_penutup });
 }
