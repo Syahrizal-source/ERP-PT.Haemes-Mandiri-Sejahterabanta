@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 
@@ -11,12 +11,20 @@ import { useToast } from "@/components/ui/toast-context";
 
 type RABItem = {
   id: string;
-  kategori: string;
-  uraian: string | null;
+  id_proyek: string;
+  id_kategori: number;
+  kategori: {
+    id: number;
+    kode: string;
+    nama: string;
+    jenis: "BIAYA" | "MATERIAL";
+  };
+  uraian: string;
   volume: number;
-  satuan: string | null;
+  satuan: string;
   harga_satuan: number;
   total: number;
+  keterangan?: string;
 };
 
 export default function ProyekRABPage() {
@@ -30,24 +38,10 @@ export default function ProyekRABPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<boolean>(false);
-  const grandTotal = data.reduce(
-    (sum, item) => sum + Number(item.total || 0),
-    0
+  const grandTotal = useMemo(
+    () => data.reduce((sum, item) => sum + Number(item.total), 0),
+    [data],
   );
-  function formatKategori(value: string | null): string {
-    if (!value) return "-";
-
-    const map: Record<string, string> = {
-      bbm: "BBM",
-      tenaga_kerja: "Tenaga Kerja",
-      alat: "Sewa Alat",
-      sparepart: "Sparepart",
-      subcontract: "Subcontract",
-      overhead: "Overhead",
-    };
-
-    return map[value] || value;
-  }
 
   async function fetchRAB(): Promise<void> {
     setLoading(true);
@@ -59,7 +53,12 @@ export default function ProyekRABPage() {
       return;
     }
 
-    const result: RABItem[] = await res.json();
+    const result = await res.json();
+
+    if (!Array.isArray(result)) {
+      showToast("Data RAB tidak valid", "error");
+      return;
+    }
     setData(result);
     setLoading(false);
   }
@@ -86,7 +85,7 @@ export default function ProyekRABPage() {
   }
 
   useEffect(() => {
-    fetchRAB();// eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchRAB(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proyekId]);
 
   return (
@@ -123,6 +122,7 @@ export default function ProyekRABPage() {
                   <th className="p-2 border">Uraian</th>
                   <th className="p-2 border text-right">Volume</th>
                   <th className="p-2 border">Satuan</th>
+                  <th className="p-2 border">Jenis</th>
                   <th className="p-2 border text-right">Harga Satuan</th>
                   <th className="p-2 border text-right">Jumlah</th>
                   <th className="p-2 border text-center">Aksi</th>
@@ -131,8 +131,8 @@ export default function ProyekRABPage() {
               <tbody>
                 {data.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-4">
-                      Belum ada RAB
+                    <td colSpan={9} className="py-8 text-center text-gray-500">
+                      Belum ada data RAB untuk proyek ini.
                     </td>
                   </tr>
                 ) : (
@@ -142,20 +142,17 @@ export default function ProyekRABPage() {
                         {index + 1}
                       </td>
 
-                      <td className="border px-3 py-2">
-                        {formatKategori(item.kategori)}
-                      </td>
+                      <td className="border px-3 py-2">{item.kategori.nama}</td>
 
-                      <td className="border px-3 py-2">
-                        {item.uraian ?? "-"}
-                      </td>
+                      <td className="border px-3 py-2">{item.uraian ?? "-"}</td>
 
                       <td className="border px-3 py-2 text-right">
                         {item.volume.toLocaleString("id-ID")}
                       </td>
 
+                      <td className="border px-3 py-2">{item.satuan ?? "-"}</td>
                       <td className="border px-3 py-2">
-                        {item.satuan ?? "-"}
+                        {item.kategori.jenis}
                       </td>
 
                       <td className="border px-3 py-2 text-right">
@@ -171,7 +168,9 @@ export default function ProyekRABPage() {
                           <Button
                             variant="secondary"
                             onClick={() =>
-                              router.push(`/proyek/${proyekId}/rab/${item.id}/edit`)
+                              router.push(
+                                `/proyek/${proyekId}/rab/${item.id}/edit`,
+                              )
                             }
                           >
                             <Pencil className="w-4 h-4" />
@@ -200,12 +199,11 @@ export default function ProyekRABPage() {
               </div>
             </div>
           </div>
-        )
-        }
-      </Card >
+        )}
+      </Card>
 
       {/* CONFIRM DELETE */}
-      < ConfirmModal
+      <ConfirmModal
         open={deleteId !== null}
         title="Konfirmasi Hapus"
         description="Apakah Anda yakin ingin menghapus RAB ini?"
@@ -213,6 +211,6 @@ export default function ProyekRABPage() {
         onCancel={() => setDeleteId(null)}
         loading={deleting}
       />
-    </div >
+    </div>
   );
 }

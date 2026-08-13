@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { calcDepresiasiBulanan } from "@/lib/aset/calc-depresiasi";
+import { calcDepresiasi } from "@/lib/aset/calc-depresiasi";
 import { postAset } from "@/lib/accounting/postAset";
 import { asetSchema, AsetInput } from "@/lib/validators/aset";
 
 export type AsetRow = {
   id_aset: number;
+  kategori_aset: string;
   nama: string;
   nilai_perolehan: number;
   tanggal_perolehan: string;
   umur_manfaat: number;
+  metode: string;
+  tarif_penyusutan: number;
   depresiasi_bulanan: number;
+  depresiasi_tahunan: number;
   akumulasi_depresiasi: number;
   nilai_buku: number;
   last_depresiasi: string | null;
@@ -25,36 +29,58 @@ export async function GET(): Promise<NextResponse> {
     .select(
       `
     id_aset,
+    kategori_aset,
     nama,
     nilai_perolehan,
     tanggal_perolehan,
     umur_manfaat,
+    metode,
+    tarif_penyusutan,
     depresiasi_bulanan,
+    depresiasi_tahunan,
     akumulasi_depresiasi,
     nilai_buku,
     last_depresiasi
   `,
     )
-    .order("tanggal_perolehan", {
-      ascending: false,
-    });
-
-  if (error || !data) {
-    return NextResponse.json(
-      { error: "Gagal ambil data aset" },
-      { status: 500 },
-    );
+    .order("tanggal_perolehan", { ascending: false });
+  if (error) {
+    console.error("GET ASET ERROR:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const result: AsetRow[] = data.map((a) => ({
+  const result = data.map((a) => ({
     id_aset: Number(a.id_aset),
+
+    kategori_aset:
+      a.kategori_aset && a.kategori_aset !== "null"
+        ? String(a.kategori_aset)
+        : "PERALATAN",
+
     nama: String(a.nama),
+
     nilai_perolehan: Number(a.nilai_perolehan),
+
     tanggal_perolehan: String(a.tanggal_perolehan),
+
     umur_manfaat: Number(a.umur_manfaat),
+
+    metode: String(a.metode ?? "GARIS_LURUS"),
+
+    tarif_penyusutan: Number(
+      a.tarif_penyusutan ?? 100 / Number(a.umur_manfaat),
+    ),
+
     depresiasi_bulanan: Number(a.depresiasi_bulanan ?? 0),
+
+    depresiasi_tahunan: Number(
+      a.depresiasi_tahunan ?? Number(a.depresiasi_bulanan ?? 0) * 12,
+    ),
+
     akumulasi_depresiasi: Number(a.akumulasi_depresiasi ?? 0),
-    nilai_buku: Number(a.nilai_buku ?? 0),
+
+    nilai_buku: Number(a.nilai_buku ?? a.nilai_perolehan),
+
     last_depresiasi: a.last_depresiasi ? String(a.last_depresiasi) : null,
   }));
 
@@ -78,28 +104,34 @@ export async function POST(req: Request) {
 
     const nominal = input.nilai_perolehan;
 
-    const ppn = nominal * 0.11;
-    const pph23 = nominal * 0.02;
-
-    const total = nominal + ppn - pph23;
-
-    if (total <= 0) {
-      return Response.json({ error: "Total tidak valid" }, { status: 400 });
+    if (nominal <= 0) {
+      return Response.json(
+        { error: "Nilai perolehan tidak valid" },
+        { status: 400 },
+      );
     }
 
-    const depresiasi = calcDepresiasiBulanan(nominal, input.umur_manfaat);
+    const hasil = calcDepresiasi(nominal, input.umur_manfaat);
+
+    const depresiasiBulanan = hasil.depresiasiBulanan;
+    const depresiasiTahunan = hasil.depresiasiTahunan;
+    const tarifPenyusutan = hasil.tarifPersen;
 
     const { data, error } = await db
       .from("aset")
       .insert({
+        kategori_aset: input.kategori_aset,
         nama: input.nama,
         nilai_perolehan: nominal,
         tanggal_perolehan: input.tanggal_perolehan,
         umur_manfaat: input.umur_manfaat,
-        depresiasi_bulanan: depresiasi,
-        ppn,
-        pph23,
-        total,
+        metode: "GARIS_LURUS",
+        tarif_penyusutan: tarifPenyusutan,
+        depresiasi_bulanan: depresiasiBulanan,
+        depresiasi_tahunan: depresiasiTahunan,
+        akumulasi_depresiasi: 0,
+        nilai_buku: nominal,
+        last_depresiasi: null,
       })
       .select()
       .single();
@@ -113,8 +145,6 @@ export async function POST(req: Request) {
       `AST-${data.id_aset}`,
       input.nama,
       nominal,
-      ppn,
-      pph23,
     );
 
     await db

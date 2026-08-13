@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Save, ArrowLeft, Loader2 } from "lucide-react";
-import Swal from 'sweetalert2';
+import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -24,14 +24,14 @@ export default function CreateProyekPage() {
     nama_proyek: "",
     lokasi: "",
     customer: "",
-    jenis_proyek: "lainnya",
+    jenis_proyek: "PENGURUGAN",
     nilai_kontrak: 0,
     tanggal_mulai: "",
     tanggal_selesai: "",
     project_manager: "",
-    status: "draft",
+    status: "DRAFT",
     margin_target: 0,
-    metode_kontrak: "lumpsum",
+    metode_kontrak: "UNIT_PRICE",
   });
 
   function handleChange<K extends keyof ProyekForm>(
@@ -49,6 +49,16 @@ export default function CreateProyekPage() {
 
     setLoading(true);
 
+    if (form.tanggal_selesai && form.tanggal_selesai < form.tanggal_mulai) {
+      showToast(
+        "Tanggal selesai tidak boleh lebih kecil dari tanggal mulai",
+        "error",
+      );
+
+      return;
+    }
+    console.log(form);
+
     const res = await fetch("/api/proyek/master", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -58,11 +68,16 @@ export default function CreateProyekPage() {
     setLoading(false);
 
     if (!res.ok) {
+      const err = await res.json();
+
+      console.log(err);
+
       Swal.fire({
         icon: "error",
         title: "Oops...",
-        text: "Gagal menyimpan proyek",
+        text: err.error,
       });
+
       return;
     }
 
@@ -76,7 +91,7 @@ export default function CreateProyekPage() {
       showConfirmButton: false,
       timer: 1500,
     }).then(() => {
-      router.push("/proyek");
+      router.push(`/proyek/${result.id}/rab`);
       router.refresh();
     });
   }
@@ -132,11 +147,14 @@ export default function CreateProyekPage() {
                 )
               }
             >
-              <option value="earthwork">Earthwork</option>
-              <option value="hauling">Hauling</option>
-              <option value="mining">Mining</option>
-              <option value="konstruksi">Konstruksi</option>
-              <option value="lainnya">Lainnya</option>
+              <option value="PENGURUGAN">Pengurugan</option>
+              <option value="CUT_FILL">Cut & Fill</option>
+              <option value="LAND_CLEARING">Land Clearing</option>
+              <option value="JALAN">Pembangunan Jalan</option>
+              <option value="DRAINASE">Drainase</option>
+              <option value="GEDUNG">Gedung</option>
+              <option value="APARTEMEN">Apartemen</option>
+              <option value="PERUMAHAN">Perumahan</option>
             </select>
           </div>
 
@@ -153,8 +171,8 @@ export default function CreateProyekPage() {
                 )
               }
             >
-              <option value="lumpsum">Lumpsum</option>
-              <option value="unit_price">Unit Price</option>
+              <option value="LUMPSUM">Lump Sum</option>
+              <option value="UNIT_PRICE">Unit Price</option>
             </select>
           </div>
 
@@ -168,9 +186,12 @@ export default function CreateProyekPage() {
                 handleChange("status", e.target.value as ProyekForm["status"])
               }
             >
-              <option value="draft">Draft</option>
-              <option value="running">Running</option>
-              <option value="closed">Closed</option>
+              <option value="DRAFT">Draft</option>
+              <option value="OPEN">Open</option>
+              <option value="BERJALAN">Berjalan</option>
+              <option value="SELESAI">Selesai</option>
+              <option value="DITUTUP">Ditutup</option>
+              <option value="BATAL">Batal</option>
             </select>
           </div>
 

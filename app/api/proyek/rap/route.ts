@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { ProyekRAP } from "@/types/proyek";
-import { postRAP } from "@/lib/accounting/postRAP";
-
-type Kategori =
-  | "alat"
-  | "tenaga_kerja"
-  | "bbm"
-  | "sparepart"
-  | "subcontract"
-  | "overhead";
 
 type RapBody = {
   id_proyek: string;
-  nama_item: string;
-  kategori: Kategori;
+  id_rab: string;
+  id_kategori: number;
+  uraian: string;
   qty: number;
+  satuan?: string;
   harga: number;
   tanggal: string;
   keterangan?: string;
@@ -35,15 +27,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const { data, error } = await db
       .from("rap_proyek")
-      .select("*")
-      .eq("id_proyek", id_proyek) // 🔥 FILTER PENTING
-      .order("tanggal", { ascending: false });
+      .select(
+        `
+  *,
+  kategori:kategori_biaya_proyek(
+    id,
+    kode,
+    nama,
+    jenis
+  )
+`,
+      )
+      .eq("id_proyek", id_proyek)
+      .order("id_kategori", { ascending: true })
+      .order("uraian", { ascending: true });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json({
+      data: data ?? [],
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Gagal ambil RAP" }, { status: 500 });
@@ -56,23 +61,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const body = (await req.json()) as RapBody;
 
-    if (!body.id_proyek || !body.nama_item || !body.tanggal) {
+    if (!body.id_proyek || !body.id_kategori || !body.uraian || !body.tanggal) {
       return NextResponse.json(
         { error: "Data tidak lengkap" },
         { status: 400 },
       );
     }
-    await postRAP({
-      id_proyek: body.id_proyek,
-      nama_item: body.nama_item,
-      kategori: body.kategori,
-      qty: body.qty,
-      harga: body.harga,
-      tanggal: body.tanggal,
-    });
 
-    const qty = Math.max(0, Number(body.qty));
-    const harga = Math.max(0, Number(body.harga));
+    const qty = Number(body.qty);
+    const harga = Number(body.harga);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return NextResponse.json(
+        { error: "Qty harus lebih dari 0" },
+        { status: 400 },
+      );
+    }
+
+    if (!Number.isFinite(harga) || harga <= 0) {
+      return NextResponse.json(
+        { error: "Harga harus lebih dari 0" },
+        { status: 400 },
+      );
+    }
+
     const total = qty * harga;
 
     if (total <= 0) {
@@ -82,19 +93,67 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const { data: proyek, error: proyekError } = await db
+      .from("proyek_master")
+      .select("id")
+      .eq("id", body.id_proyek)
+      .single();
+
+    if (proyekError || !proyek) {
+      throw new Error("Proyek tidak ditemukan.");
+    }
+
+    const { data: kategori, error: kategoriError } = await db
+      .from("kategori_biaya_proyek")
+      .select("id")
+      .eq("id", body.id_kategori)
+      .single();
+
+    if (kategoriError || !kategori) {
+      throw new Error("Kategori biaya tidak ditemukan.");
+    }
+
+    const { data: rab, error: rabError } = await db
+      .from("proyek_rab")
+      .select("*")
+      .eq("id", body.id_rab)
+      .single();
+
+    if (rabError || !rab) {
+      throw new Error("RAB tidak ditemukan.");
+    }
+
+    if (!rab) {
+      throw new Error("Item RAP harus berasal dari RAB.");
+    }
+
+    if (rab.satuan !== body.satuan) {
+      throw new Error("Satuan RAP harus sama dengan RAB.");
+    }
+
+    if (qty > rab.volume) {
+      throw new Error("Qty RAP melebihi Volume RAB.");
+    }
+
+    if (harga > rab.harga_satuan) {
+      throw new Error("Harga RAP melebihi Harga RAB.");
+    }
+
     /* =========================
        INSERT RAP
     ========================= */
     const { data: rap, error: rapError } = await db
       .from("rap_proyek")
       .insert({
+        id_rab: body.id_rab,
         id_proyek: body.id_proyek,
-        nama_item: body.nama_item,
-        kategori: body.kategori,
+        id_kategori: body.id_kategori,
+        uraian: body.uraian,
         qty,
+        satuan: body.satuan ?? null,
         harga,
         tanggal: body.tanggal,
-        keterangan: body.keterangan,
+        keterangan: body.keterangan ?? null,
       })
       .select()
       .single();
@@ -107,86 +166,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     await db.from("audit_log").insert({
-      aksi: "INSERT",
+      modul: "PROYEK",
       tabel: "rap_proyek",
+      aksi: "INSERT",
+      id_referensi: rap.id,
       data: {
+        id_rab: rap.id_rab,
         id_rap: rap.id,
-        nama_item: body.nama_item,
+        id_proyek: rap.id_proyek,
+        id_kategori: rap.id_kategori,
+        uraian: rap.uraian,
+        qty: rap.qty,
+        satuan: rap.satuan,
+        harga: rap.harga,
         total,
+        tanggal: rap.tanggal,
       },
     });
 
-    /* =========================
-       AMBIL PERIODE OPEN
-    ========================= */
-    const { data: periode } = await db
-      .from("periode")
-      .select("id_periode")
-      .eq("status", "OPEN")
-      .single();
-
-    if (!periode) {
-      return NextResponse.json(
-        { error: "Periode OPEN tidak ditemukan" },
-        { status: 400 },
-      );
-    }
-
-    /* =========================
-       INSERT JURNAL HEADER
-    ========================= */
-    const { data: jurnal, error: jError } = await db
-      .from("jurnal")
-      .insert({
-        tanggal: body.tanggal,
-        no_bukti: `RAP-${Date.now()}`,
-        sumber: "UMUM",
-        keterangan: `RAP: ${body.nama_item}`,
-        id_periode: periode.id_periode,
-        is_posted: true,
-      })
-      .select()
-      .single();
-
-    if (jError || !jurnal) {
-      return NextResponse.json(
-        { error: jError?.message ?? "Gagal buat jurnal" },
-        { status: 500 },
-      );
-    }
-
-    /* =========================
-       COA (WAJIB ADA DI DB)
-    ========================= */
-    const COA_BEBAN = 50000; // ganti sesuai DB kamu
-    const COA_KAS = 11001; // kas
-
-    /* =========================
-       INSERT DETAIL
-    ========================= */
-    const { error: dError } = await db.from("jurnal_detail").insert([
+    return NextResponse.json(
       {
-        id_jurnal: jurnal.id_jurnal,
-        id_coa: COA_BEBAN,
-        debit: total,
-        kredit: 0,
+        message: "RAP berhasil disimpan",
+        data: rap,
       },
-      {
-        id_jurnal: jurnal.id_jurnal,
-        id_coa: COA_KAS,
-        debit: 0,
-        kredit: total,
-      },
-    ]);
-
-    if (dError) {
-      return NextResponse.json({ error: dError.message }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      message: "RAP + Jurnal berhasil",
-    });
+      { status: 200 },
+    );
   } catch (err) {
-    return NextResponse.json({ error: "Terjadi kesalahan" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: err instanceof Error ? err.message : "Terjadi kesalahan",
+      },
+      { status: 400 },
+    );
   }
 }

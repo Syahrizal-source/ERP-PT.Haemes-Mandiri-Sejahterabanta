@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Save, ArrowLeft, Loader2 } from "lucide-react";
-import Swal from 'sweetalert2';
+import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -28,14 +28,14 @@ export default function EditProyekPage() {
     nama_proyek: "",
     lokasi: "",
     customer: "",
-    jenis_proyek: "lainnya",
+    jenis_proyek: "PENGURUGAN",
     nilai_kontrak: 0,
     tanggal_mulai: "",
     tanggal_selesai: "",
     project_manager: "",
-    status: "draft",
+    status: "DRAFT",
     margin_target: 0,
-    metode_kontrak: "lumpsum",
+    metode_kontrak: "LUMPSUM",
   });
 
   useEffect(() => {
@@ -80,7 +80,11 @@ export default function EditProyekPage() {
       return;
     }
 
-    setSaving(true);
+    if (!form.kode_proyek.trim())
+      if (!form.nama_proyek.trim())
+        if (!form.customer.trim())
+          if (!form.project_manager.trim())
+            if (!form.tanggal_mulai) setSaving(true);
 
     const res = await fetch(`/api/proyek/master/${id}`, {
       method: "PUT",
@@ -164,11 +168,14 @@ export default function EditProyekPage() {
                 )
               }
             >
-              <option value="earthwork">Earthwork</option>
-              <option value="hauling">Hauling</option>
-              <option value="mining">Mining</option>
-              <option value="konstruksi">Konstruksi</option>
-              <option value="lainnya">Lainnya</option>
+              <option value="PENGURUGAN">Pengurugan</option>
+              <option value="CUT_FILL">Cut & Fill</option>
+              <option value="LAND_CLEARING">Land Clearing</option>
+              <option value="JALAN">Jalan</option>
+              <option value="DRAINASE">Drainase</option>
+              <option value="APARTEMEN">Apartemen</option>
+              <option value="GEDUNG">Gedung</option>
+              <option value="PERUMAHAN">Perumahan</option>
             </select>
           </div>
 
@@ -185,8 +192,8 @@ export default function EditProyekPage() {
                 )
               }
             >
-              <option value="lumpsum">Lumpsum</option>
-              <option value="unit_price">Unit Price</option>
+              <option value="LUMPSUM">Lumpsum</option>
+              <option value="UNIT_PRICE">Unit Price</option>
             </select>
           </div>
 
@@ -200,9 +207,12 @@ export default function EditProyekPage() {
                 handleChange("status", e.target.value as ProyekForm["status"])
               }
             >
-              <option value="draft">Draft</option>
-              <option value="running">Running</option>
-              <option value="closed">Closed</option>
+              <option value="DRAFT">Draft</option>
+              <option value="OPEN">Open</option>
+              <option value="BERJALAN">Berjalan</option>
+              <option value="SELESAI">Selesai</option>
+              <option value="DITUTUP">Ditutup</option>
+              <option value="BATAL">Batal</option>
             </select>
           </div>
 

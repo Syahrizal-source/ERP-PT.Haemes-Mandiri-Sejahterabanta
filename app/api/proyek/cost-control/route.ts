@@ -1,35 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { validatePositive } from "@/lib/validator";
-import { ProyekCostControl } from "@/types/proyek";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const idRab = searchParams.get("id_rab");
-
-  let query = db.from("proyek_cost_control").select("*");
-
-  if (idRab) {
-    query = query.eq("id_rab", idRab);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json(data);
-}
-
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const body: Omit<ProyekCostControl, "id"> = await req.json();
-    validatePositive(body.biaya_realisasi, "Biaya Realisasi");
+    const { searchParams } = new URL(req.url);
 
-    const { error } = await db.from("proyek_cost_control").insert(body);
-    if (error) throw error;
+    const idProyek = searchParams.get("id_proyek");
+    const idKategori = searchParams.get("id_kategori");
+    const status = searchParams.get("status");
 
-    return NextResponse.json({ message: "Cost Control ditambahkan" });
-  } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    let query = db
+      .from("v_cost_control")
+      .select("*")
+      .order("kode_kategori", { ascending: true })
+      .order("uraian", { ascending: true });
+
+    if (idProyek) {
+      query = query.eq("id_proyek", idProyek);
+    }
+
+    if (idKategori) {
+      query = query.eq("id_kategori", Number(idKategori));
+    }
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: data ?? [],
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: err instanceof Error ? err.message : "Terjadi kesalahan server.",
+      },
+      {
+        status: 500,
+      },
+    );
   }
 }

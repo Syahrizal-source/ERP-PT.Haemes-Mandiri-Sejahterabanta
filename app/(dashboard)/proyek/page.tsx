@@ -29,13 +29,15 @@ export default function ProyekListPage() {
       return;
     }
 
-    const result: ProyekMaster[] = await res.json();
+    const result = await res.json();
+    console.log(result);
+
     setData(result);
     setLoading(false);
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchData(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleDelete(): Promise<void> {
@@ -84,6 +86,7 @@ export default function ProyekListPage() {
                   <tr>
                     <th className="border px-3 py-2">Kode</th>
                     <th className="border px-3 py-2">Nama</th>
+                    <th className="border px-3 py-2">Jenis Proyek</th>
                     <th className="border px-3 py-2">Customer</th>
                     <th className="border px-3 py-2">Nilai Kontrak</th>
                     <th className="border px-3 py-2">Status</th>
@@ -102,11 +105,22 @@ export default function ProyekListPage() {
                       <tr key={item.id}>
                         <td className="border px-3 py-2">{item.kode_proyek}</td>
                         <td className="border px-3 py-2">{item.nama_proyek}</td>
+                        <td className="border px-3 py-2">
+                          {item.jenis_proyek}
+                        </td>
                         <td className="border px-3 py-2">{item.customer}</td>
                         <td className="border px-3 py-2 text-right">
-                          {item.nilai_kontrak.toLocaleString("id-ID")}
+                          {new Intl.NumberFormat("id-ID", {
+                            style: "currency",
+                            currency: "IDR",
+                            minimumFractionDigits: 0,
+                          }).format(item.nilai_kontrak)}
                         </td>
-                        <td className="border px-3 py-2">{item.status}</td>
+                        <td className="border px-3 py-2">
+                          <span className="px-2 py-1 rounded text-xs font-medium">
+                            {item.status}
+                          </span>
+                        </td>
                         <td className="border px-3 py-2">
                           <div className="flex justify-center gap-2">
                             {/* DETAIL */}

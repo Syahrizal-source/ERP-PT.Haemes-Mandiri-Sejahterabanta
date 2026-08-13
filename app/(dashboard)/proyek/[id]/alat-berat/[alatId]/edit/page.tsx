@@ -6,6 +6,17 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 
+type StatusAlatBerat = "AKTIF" | "SELESAI" | "DIBATALKAN";
+
+type FormState = {
+  tanggal_mulai: string;
+  tanggal_selesai: string;
+  tarif_sewa_internal: number;
+  jam_operasi: number;
+  status: StatusAlatBerat;
+  keterangan: string;
+};
+
 export default function EditAlatBerat() {
   const { id, alatId } = useParams<{
     id: string;
@@ -14,11 +25,13 @@ export default function EditAlatBerat() {
 
   const router = useRouter();
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<FormState>({
     tanggal_mulai: "",
     tanggal_selesai: "",
     tarif_sewa_internal: 0,
     jam_operasi: 0,
+    status: "AKTIF",
+    keterangan: "",
   });
 
   useEffect(() => {
@@ -38,6 +51,8 @@ export default function EditAlatBerat() {
         tanggal_selesai: row.tanggal_selesai ?? "",
         tarif_sewa_internal: row.tarif_sewa_internal,
         jam_operasi: row.jam_operasi,
+        status: row.status,
+        keterangan: row.keterangan ?? "",
       });
     }
 
@@ -45,16 +60,44 @@ export default function EditAlatBerat() {
   }, [id, alatId]);
 
   async function handleSubmit(): Promise<void> {
-    await fetch(`/api/proyek/alat-berat-konstruksi/${alatId}`, {
+    if (!form.tanggal_mulai) {
+      alert("Tanggal mulai wajib diisi.");
+      return;
+    }
+
+    if (form.tarif_sewa_internal <= 0) {
+      alert("Tarif sewa harus lebih besar dari nol.");
+      return;
+    }
+
+    if (form.jam_operasi <= 0) {
+      alert("Jam operasi harus lebih besar dari nol.");
+      return;
+    }
+
+    if (form.tanggal_selesai && form.tanggal_selesai < form.tanggal_mulai) {
+      alert("Tanggal selesai tidak boleh lebih kecil.");
+      return;
+    }
+    const res = await fetch(`/api/proyek/alat-berat-konstruksi/${alatId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         ...form,
         tanggal_selesai: form.tanggal_selesai || null,
       }),
     });
 
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error);
+      return;
+    }
+
     router.push(`/proyek/${id}/alat-berat`);
+    router.refresh();
   }
 
   return (
@@ -82,9 +125,28 @@ export default function EditAlatBerat() {
             }
           />
 
+          <div>
+            <label className="text-sm font-medium">Status</label>
+
+            <select
+              className="w-full rounded border p-2"
+              value={form.status}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  status: e.target.value as StatusAlatBerat,
+                })
+              }
+            >
+              <option value="AKTIF">AKTIF</option>
+              <option value="SELESAI">SELESAI</option>
+              <option value="DIBATALKAN">DIBATALKAN</option>
+            </select>
+          </div>
+
           <Input
             type="number"
-            label="Tarif"
+            label="Tarif Sewa Internal"
             value={form.tarif_sewa_internal}
             onChange={(e) =>
               setForm({
@@ -102,6 +164,17 @@ export default function EditAlatBerat() {
               setForm({
                 ...form,
                 jam_operasi: Number(e.target.value),
+              })
+            }
+          />
+
+          <Input
+            label="Keterangan"
+            value={form.keterangan}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                keterangan: e.target.value,
               })
             }
           />

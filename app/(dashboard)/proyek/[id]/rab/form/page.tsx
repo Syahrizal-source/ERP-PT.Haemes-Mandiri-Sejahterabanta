@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Save, ArrowLeft, Loader2 } from "lucide-react";
 
@@ -9,34 +9,38 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { useToast } from "@/components/ui/toast-context";
 
+type KategoriBiaya = {
+  id: number;
+  kode: string;
+  nama: string;
+  jenis: "BIAYA" | "MATERIAL";
+};
+
 type FormState = {
-  kategori:
-  | "alat"
-  | "tenaga_kerja"
-  | "bbm"
-  | "sparepart"
-  | "subcontract"
-  | "overhead";
+  id_kategori: number;
   uraian: string;
   volume: number;
   satuan: string;
   harga_satuan: number;
+  keterangan: string;
 };
 
 export default function CreateRABPage() {
   const params = useParams();
   const router = useRouter();
   const { showToast } = useToast();
+  const [kategoriList, setKategoriList] = useState<KategoriBiaya[]>([]);
 
   const idProyek = params.id as string;
 
   const [loading, setLoading] = useState<boolean>(false);
   const [form, setForm] = useState<FormState>({
-    kategori: "alat",
+    id_kategori: 0,
     uraian: "",
     volume: 0,
     satuan: "",
     harga_satuan: 0,
+    keterangan: "",
   });
 
   function handleChange<K extends keyof FormState>(
@@ -71,28 +75,55 @@ export default function CreateRABPage() {
     router.refresh();
   }
 
+  useEffect(() => {
+    async function loadKategori() {
+      const res = await fetch("/api/master/kategori-biaya-proyek");
+
+      if (!res.ok) return;
+
+      const data: KategoriBiaya[] = await res.json();
+
+      setKategoriList(data);
+    }
+
+    loadKategori();
+  }, []);
+
   return (
     <div className="max-w-4xl mx-auto">
       <Card title="Tambah RAB Proyek">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-sm font-medium">Kategori</label>
+            <label className="mb-1 block text-sm font-medium">Kategori</label>
+
             <select
-              className="w-full border rounded p-2"
-              value={form.kategori}
+              className="w-full rounded-md border border-gray-300 p-2"
+              value={form.id_kategori}
               onChange={(e) =>
-                handleChange(
-                  "kategori",
-                  e.target.value as FormState["kategori"],
-                )
+                handleChange("id_kategori", Number(e.target.value))
               }
             >
-              <option value="alat">Alat</option>
-              <option value="tenaga_kerja">Tenaga Kerja</option>
-              <option value="bbm">BBM</option>
-              <option value="sparepart">Sparepart</option>
-              <option value="subcontract">Subcontract</option>
-              <option value="overhead">Overhead</option>
+              <option value={0}>-- Pilih Kategori --</option>
+
+              <optgroup label="BIAYA">
+                {kategoriList
+                  .filter((x) => x.jenis === "BIAYA")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nama}
+                    </option>
+                  ))}
+              </optgroup>
+
+              <optgroup label="MATERIAL">
+                {kategoriList
+                  .filter((x) => x.jenis === "MATERIAL")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nama}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
           </div>
 
@@ -122,6 +153,12 @@ export default function CreateRABPage() {
             onChange={(e) =>
               handleChange("harga_satuan", Number(e.target.value))
             }
+          />
+
+          <Input
+            label="Keterangan"
+            value={form.keterangan}
+            onChange={(e) => handleChange("keterangan", e.target.value)}
           />
         </div>
 

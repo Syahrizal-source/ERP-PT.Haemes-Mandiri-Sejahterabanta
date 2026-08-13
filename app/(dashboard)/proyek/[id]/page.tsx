@@ -16,6 +16,8 @@ import {
   ArrowUpCircle,
   FolderKanban,
   Notebook,
+  ClipboardList,
+  BarChart3,
 } from "lucide-react";
 
 type MenuItem = {
@@ -30,6 +32,13 @@ export default function DetailProyekPage() {
   const router = useRouter();
 
   const menus: MenuItem[] = [
+    {
+      label: "Cost Control",
+      path: `/proyek/${id}/cost-control`,
+      icon: <BarChart3 className="w-4 h-4" />,
+      category: "keuangan",
+    },
+
     {
       label: "RAB VS RAP",
       path: `/proyek/${id}/rab-vs-rap`,
@@ -49,6 +58,12 @@ export default function DetailProyekPage() {
       category: "operasional",
     },
     {
+      label: "Realisasi",
+      path: `/proyek/${id}/realisasi`,
+      icon: <ClipboardList className="w-4 h-4" />,
+      category: "operasional",
+    },
+    {
       label: "Alat Berat",
       path: `/proyek/${id}/alat-berat`,
       icon: <Truck className="w-4 h-4" />,
@@ -63,6 +78,18 @@ export default function DetailProyekPage() {
     {
       label: "Material",
       path: `/proyek/${id}/material`,
+      icon: <Package className="w-4 h-4" />,
+      category: "operasional",
+    },
+    {
+      label: "Operasional",
+      path: `/proyek/${id}/operasional`,
+      icon: <Package className="w-4 h-4" />,
+      category: "operasional",
+    },
+    {
+      label: "Subkon",
+      path: `/proyek/${id}/subkon`,
       icon: <Package className="w-4 h-4" />,
       category: "operasional",
     },

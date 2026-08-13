@@ -10,15 +10,11 @@ import Button from "@/components/ui/Button";
 import { useToast } from "@/components/ui/toast-context";
 
 type RAPForm = {
-  kategori:
-  | "alat"
-  | "tenaga_kerja"
-  | "bbm"
-  | "sparepart"
-  | "subcontract"
-  | "overhead";
-  nama_item: string;
+  id_rab: string;
+  id_kategori: number;
+  uraian: string;
   qty: number;
+  satuan: string;
   harga: number;
   tanggal: string;
   keterangan: string;
@@ -36,9 +32,11 @@ export default function EditRAPPage() {
   const [saving, setSaving] = useState<boolean>(false);
 
   const [form, setForm] = useState<RAPForm>({
-    kategori: "alat",
-    nama_item: "",
+    id_rab: "",
+    id_kategori: 0,
+    uraian: "",
     qty: 0,
+    satuan: "",
     harga: 0,
     tanggal: "",
     keterangan: "",
@@ -62,11 +60,13 @@ export default function EditRAPPage() {
       const data = await res.json();
 
       setForm({
-        kategori: data.kategori,
-        nama_item: data.nama_item,
+        id_rab: data.id_rab ?? "",
+        id_kategori: data.id_kategori,
+        uraian: data.uraian,
         qty: Number(data.qty),
+        satuan: data.satuan ?? "",
         harga: Number(data.harga),
-        tanggal: data.tanggal?.slice(0, 10),
+        tanggal: data.tanggal?.slice(0, 10) ?? "",
         keterangan: data.keterangan ?? "",
       });
 
@@ -92,8 +92,13 @@ export default function EditRAPPage() {
      UPDATE
   ========================= */
   async function handleSubmit(): Promise<void> {
-    if (!form.nama_item || !form.tanggal) {
-      showToast("Data wajib belum lengkap", "error");
+    if (!form.uraian || !form.tanggal) {
+      showToast("Uraian belum lengkap", "error");
+      return;
+    }
+
+    if (!form.id_rab) {
+      showToast("Referensi RAB tidak ditemukan.", "error");
       return;
     }
 
@@ -138,34 +143,10 @@ export default function EditRAPPage() {
     <div className="max-w-4xl mx-auto">
       <Card title="Edit RAP Proyek">
         <div className="grid grid-cols-2 gap-4">
-          {/* KATEGORI */}
-          <div>
-            <label className="text-sm font-medium">Kategori</label>
-            <select
-              className="w-full border rounded p-2"
-              value={form.kategori}
-              onChange={(e) =>
-                handleChange(
-                  "kategori",
-                  e.target.value as RAPForm["kategori"],
-                )
-              }
-            >
-              <option value="alat">Alat</option>
-              <option value="tenaga_kerja">Tenaga Kerja</option>
-              <option value="bbm">BBM</option>
-              <option value="sparepart">Sparepart</option>
-              <option value="subcontract">Subcontract</option>
-              <option value="overhead">Overhead</option>
-            </select>
-          </div>
+          <Input label="Kategori" value={form.id_kategori} readOnly />
 
           {/* NAMA ITEM */}
-          <Input
-            label="Nama Item"
-            value={form.nama_item}
-            onChange={(e) => handleChange("nama_item", e.target.value)}
-          />
+          <Input label="Nama Item" value={form.uraian} readOnly />
 
           {/* QTY */}
           <Input
@@ -175,13 +156,11 @@ export default function EditRAPPage() {
             onChange={(e) => handleChange("qty", Number(e.target.value))}
           />
 
+          {/* SATUAN */}
+          <Input label="Satuan" value={form.satuan} readOnly />
+
           {/* HARGA */}
-          <Input
-            label="Harga"
-            type="number"
-            value={form.harga}
-            onChange={(e) => handleChange("harga", Number(e.target.value))}
-          />
+          <Input label="Harga" type="number" value={form.harga} readOnly />
 
           {/* TANGGAL */}
           <Input
