@@ -8,13 +8,18 @@ import Swal from "sweetalert2";
 
 type AsetRow = {
   id_aset: number;
+  kategori_aset: string;
   nama: string;
   nilai_perolehan: number;
   tanggal_perolehan: string;
   umur_manfaat: number;
+  metode: string;
+  tarif_penyusutan: number;
   depresiasi_bulanan: number;
+  depresiasi_tahunan: number;
   akumulasi_depresiasi: number;
   nilai_buku: number;
+  last_depresiasi: string | null;
 };
 
 export default function AsetPage() {
@@ -27,22 +32,38 @@ export default function AsetPage() {
 
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingDepresiasi, setLoadingDepresiasi] = useState<boolean>(false);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [kategori, setKategori] = useState<string>("ALAT_BERAT");
 
   async function fetchData(): Promise<void> {
-    const res = await fetch("/api/aset");
+    try {
+      console.log("FETCH DATA ASET");
 
-    if (!res.ok) return;
+      const res = await fetch("/api/aset", {
+        cache: "no-store",
+      });
 
-    const data: AsetRow[] = await res.json();
-    setRows(data);
+      console.log("STATUS:", res.status);
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data: AsetRow[] = await res.json();
+
+      console.log("DATA:", data);
+
+      setRows(data);
+    } catch (e) {
+      console.error("FETCH ERROR:", e);
+    }
   }
 
   useEffect(() => {
-    async function loadData(): Promise<void> {
+    async function load(): Promise<void> {
       await fetchData();
     }
-    void loadData();
+
+    void load();
   }, []);
 
   /* =========================
@@ -57,6 +78,7 @@ export default function AsetPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        kategori_aset: kategori,
         nama,
         nilai_perolehan: Number(nilai),
         tanggal_perolehan: tanggal,
@@ -186,6 +208,21 @@ export default function AsetPage() {
       <form onSubmit={handleSubmit} className="mb-6 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
+            <label className="block text-sm mb-1">Kategori Aset</label>
+            <select
+              value={kategori}
+              onChange={(e) => setKategori(e.target.value)}
+              className="w-full border px-3 py-2 text-sm"
+            >
+              <option value="ALAT_BERAT">Alat Berat</option>
+              <option value="ARMADA">Armada</option>
+              <option value="KENDARAAN">Kendaraan</option>
+              <option value="PERALATAN">Peralatan</option>
+              <option value="INVENTARIS">Inventaris</option>
+              <option value="BANGUNAN">Bangunan</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-sm mb-1">Nama Aset</label>
             <input
               value={nama}
@@ -219,7 +256,7 @@ export default function AsetPage() {
           </div>
 
           <div>
-            <label className="block text-sm mb-1">Umur Manfaat (bulan)</label>
+            <label className="block text-sm mb-1">Umur Manfaat</label>
             <input
               type="number"
               min={1}
@@ -261,6 +298,10 @@ export default function AsetPage() {
               <th className="border p-2 text-right">Depresiasi</th>
               <th className="border p-2 text-right">Akumulasi</th>
               <th className="border p-2 text-right">Nilai Buku</th>
+              <th className="border p-2">Kategori</th>
+              <th className="border p-2">Metode</th>
+              <th className="border p-2">% Tarif</th>
+              <th className="border p-2 text-right">Depresiasi</th>
               <th className="border p-2 text-center">Status</th>
             </tr>
           </thead>
@@ -268,7 +309,7 @@ export default function AsetPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="border p-4 text-center">
+                <td colSpan={13} className="border p-4 text-center">
                   Belum ada data aset
                 </td>
               </tr>
@@ -276,7 +317,6 @@ export default function AsetPage() {
               rows.map((r) => (
                 <tr key={r.id_aset}>
                   <td className="border p-2">{r.nama}</td>
-
                   <td className="border p-2 text-right">
                     {r.nilai_perolehan.toLocaleString("id-ID")}
                   </td>
@@ -300,7 +340,17 @@ export default function AsetPage() {
                       "id-ID",
                     )}
                   </td>
+                  <td className="border p-2">{r.kategori_aset}</td>
 
+                  <td className="border p-2">{r.metode ?? "GARIS_LURUS"}</td>
+
+                  <td className="border p-2 text-center">
+                    {Number(r.tarif_penyusutan ?? 0).toFixed(2)}%
+                  </td>
+
+                  <td className="border p-2 text-right">
+                    {Number(r.depresiasi_tahunan ?? 0).toLocaleString("id-ID")}
+                  </td>
                   <td
                     className={`border p-2 text-center ${getStatusColor(
                       r.nilai_buku ?? r.nilai_perolehan,

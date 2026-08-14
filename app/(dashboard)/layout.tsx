@@ -8,7 +8,6 @@ import {
   LayoutGrid,
   Truck,
   Building2,
-  Leaf,
   Construction,
   Calculator,
   Receipt,
@@ -40,7 +39,6 @@ type UserRole =
   | "CEO"
   | "ALAT BERAT"
   | "ARMADA"
-  | "KEBUN"
   | "PROYEK"
   | "PAYROLL"
   | "ACCOUNTING"
@@ -129,41 +127,6 @@ const navigation: NavigationItem[] = [
   },
 
   {
-    label: "Kebun Sawit",
-    icon: <Leaf className="w-4 h-4" />,
-    roles: ["ADMIN", "KEBUN"],
-    sections: [
-      {
-        title: "Master",
-        children: [
-          { label: "Master Kebun", href: "/kebun-sawit/master" },
-          { label: "Estate", href: "/kebun-sawit/estate" },
-          { label: "Division", href: "/kebun-sawit/divisions" },
-          { label: "Block", href: "/kebun-sawit/blocks" },
-          { label: "Employees", href: "/kebun-sawit/employees" },
-        ],
-      },
-      {
-        title: "Operasional",
-        children: [
-          { label: "Harvest", href: "/kebun-sawit/harvest" },
-          { label: "Fertilization", href: "/kebun-sawit/fertilizations" },
-          { label: "Pest Control", href: "/kebun-sawit/pest-controls" },
-          { label: "Replanting", href: "/kebun-sawit/replantings" },
-        ],
-      },
-      {
-        title: "Inventory",
-        children: [
-          { label: "Items", href: "/kebun-sawit/inventory/items" },
-          { label: "Inventory", href: "/kebun-sawit/inventory-transactions" },
-          { label: "Work Premium", href: "/kebun-sawit/work-premiums" },
-        ],
-      },
-    ],
-  },
-
-  {
     label: "Alat Berat",
     icon: <Tractor className="w-4 h-4" />,
     roles: ["ADMIN", "ALAT BERAT"],
@@ -240,6 +203,9 @@ const navigation: NavigationItem[] = [
           { label: "Alat Berat", href: "/proyek/alat-berat" },
           { label: "Material", href: "/proyek/material" },
           { label: "Tenaga Kerja", href: "/proyek/tenaga-kerja" },
+          { label: "Realisasi", href: "/proyek/realisasi" },
+          { label: "Subkon", href: "/proyek/subkon" },
+          { label: "Operasional", href: "/proyek/operasional" },
         ],
       },
       {

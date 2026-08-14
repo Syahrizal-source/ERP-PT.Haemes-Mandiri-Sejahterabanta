@@ -11,11 +11,24 @@ import { useToast } from "@/components/ui/toast-context";
 
 type ProgressItem = {
   id: string;
+  id_proyek: string;
   tanggal: string;
+  no_bukti: string | null;
   target_volume: number;
   realisasi_volume: number;
   deviasi: number;
+  progress_persen: number;
+  nilai_progress: number;
+  satuan: string;
+  status: "SELESAI" | "TERLAMBAT" | "PROGRESS";
+  periode: string | null;
+  lokasi: string | null;
+  pic: string | null;
+  metode_pembayaran: "KAS" | "BANK" | "HUTANG";
+  id_jurnal: number | null;
   keterangan: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export default function ProyekProgressPage() {
@@ -67,7 +80,7 @@ export default function ProyekProgressPage() {
   }
 
   useEffect(() => {
-    fetchProgress();// eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchProgress(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proyekId]);
 
   return (
@@ -98,12 +111,20 @@ export default function ProyekProgressPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border text-sm">
-              <thead className="bg-gray-100">
+              <thead className="bg-gray-100 text-center">
                 <tr>
+                  <th className="border px-3 py-2">No</th>
                   <th className="border px-3 py-2">Tanggal</th>
-                  <th className="border px-3 py-2 text-right">Target</th>
-                  <th className="border px-3 py-2 text-right">Realisasi</th>
-                  <th className="border px-3 py-2 text-right">Deviasi</th>
+                  <th className="border px-3 py-2">No Bukti</th>
+                  <th className="border px-3 py-2">Target</th>
+                  <th className="border px-3 py-2">Realisasi</th>
+                  <th className="border px-3 py-2">Deviasi</th>
+                  <th className="border px-3 py-2">%</th>
+                  <th className="border px-3 py-2">Nilai</th>
+                  <th className="border px-3 py-2">Pembayaran</th>
+                  <th className="border px-3 py-2">Status</th>
+                  <th className="border px-3 py-2">Jurnal</th>
+                  <th className="border px-3 py-2">PIC</th>
                   <th className="border px-3 py-2">Keterangan</th>
                   <th className="border px-3 py-2">Aksi</th>
                 </tr>
@@ -111,28 +132,84 @@ export default function ProyekProgressPage() {
               <tbody>
                 {data.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-4">
+                    <td colSpan={13} className="text-center py-4">
                       Belum ada progress
                     </td>
                   </tr>
                 ) : (
-                  data.map((item) => (
+                  data.map((item, index) => (
                     <tr key={item.id}>
-                      <td className="border px-3 py-2">{item.tanggal}</td>
-                      <td className="border px-3 py-2 text-right">
-                        {item.target_volume}
+                      <td className="border px-2 text-center">{index + 1}</td>
+                      <td className="border px-3 py-2">
+                        {new Date(item.tanggal).toLocaleDateString("id-ID")}
+                      </td>
+                      <td className="border px-2 font-mono">
+                        {item.no_bukti ?? "-"}
                       </td>
                       <td className="border px-3 py-2 text-right">
-                        {item.realisasi_volume}
+                        {item.target_volume.toLocaleString("id-ID")}{" "}
+                        {item.satuan}
+                      </td>
+                      <td className="border px-3 py-2 text-right">
+                        {item.realisasi_volume.toLocaleString("id-ID")}{" "}
+                        {item.satuan}
                       </td>
                       <td
-                        className={`border px-3 py-2 text-right ${item.deviasi < 0 ? "text-red-600" : "text-green-600"
-                          }`}
+                        className={`border px-3 py-2 text-right ${
+                          item.deviasi < 0 ? "text-red-600" : "text-green-600"
+                        }`}
                       >
                         {item.deviasi}
                       </td>
-                      <td className="border px-3 py-2">
-                        {item.keterangan ?? "-"}
+                      <td className="border px-2 text-right">
+                        {Number(item.progress_persen).toFixed(2)}%
+                      </td>
+
+                      <td className="border px-2 text-right font-semibold text-blue-600">
+                        Rp {Number(item.nilai_progress).toLocaleString("id-ID")}
+                      </td>
+                      <td className="text-center">
+                        <span
+                          className={
+                            item.metode_pembayaran === "KAS"
+                              ? "rounded bg-green-100 px-2 py-1 text-green-700"
+                              : item.metode_pembayaran === "BANK"
+                                ? "rounded bg-blue-100 px-2 py-1 text-blue-700"
+                                : "rounded bg-orange-100 px-2 py-1 text-orange-700"
+                          }
+                        >
+                          {item.metode_pembayaran}
+                        </span>
+                      </td>
+                      <td className="text-center">
+                        <span
+                          className={
+                            item.status === "SELESAI"
+                              ? "rounded bg-green-100 px-2 py-1 text-green-700"
+                              : item.status === "TERLAMBAT"
+                                ? "rounded bg-red-100 px-2 py-1 text-red-700"
+                                : "rounded bg-yellow-100 px-2 py-1 text-yellow-700"
+                          }
+                        >
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="text-center">
+                        {item.id_jurnal ? (
+                          <span className="rounded bg-green-100 px-2 py-1 text-green-700">
+                            Posted
+                          </span>
+                        ) : (
+                          <span className="rounded bg-yellow-100 px-2 py-1 text-yellow-700">
+                            Draft
+                          </span>
+                        )}
+                      </td>
+                      <td className="border px-2">{item.pic ?? "-"}</td>
+                      <td className="border px-2 max-w-xs">
+                        <div className="line-clamp-2">
+                          {item.keterangan ?? "-"}
+                        </div>
                       </td>
                       <td className="border px-3 py-2">
                         <div className="flex gap-2">

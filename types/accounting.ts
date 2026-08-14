@@ -1,12 +1,3 @@
-export type JenisTransaksiKebun =
-  | "HARVEST"
-  | "PEMUPUKAN"
-  | "PERAWATAN"
-  | "HAMA"
-  | "REPLANTING"
-  | "GAJI"
-  | "MAINTENANCE";
-
 export type JenisTransaksiAlatBerat =
   | "FUEL"
   | "MAINTENANCE"
@@ -34,7 +25,6 @@ export type JurnalSumber =
   | "KAS_ARMADA"
   | "ALAT_BERAT"
   | "PROYEK"
-  | "KEBUN"
   | "PURCHASING"
   | "PAJAK"
   | "PAYROLL"

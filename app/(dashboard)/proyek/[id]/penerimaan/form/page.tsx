@@ -8,140 +8,355 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { useToast } from "@/components/ui/toast-context";
+
 import { ProyekPenerimaanSchema } from "@/lib/validators/penerimaanproyek";
+
+// =====================================================
+// TYPES
+// =====================================================
+
+type MetodePenerimaanProyek = "KAS" | "BANK";
 
 type TagihanItem = {
   id: string;
   nomor_invoice: string;
+  tanggal: string;
   nilai: number;
+  grand_total: number;
+  status: string;
 };
 
 type FormState = {
   id_tagihan: string;
   tanggal: string;
   jumlah: number;
-  metode: string;
+  metode: MetodePenerimaanProyek;
   bank: string;
 };
 
+// =====================================================
+// PAGE
+// =====================================================
+
 export default function CreatePenerimaanPage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{
+    id: string;
+  }>();
+
   const router = useRouter();
   const { showToast } = useToast();
 
+  const proyekId = params.id;
+
   const [tagihan, setTagihan] = useState<TagihanItem[]>([]);
+  const [loadingTagihan, setLoadingTagihan] = useState<boolean>(true);
+
   const [saving, setSaving] = useState<boolean>(false);
 
   const [form, setForm] = useState<FormState>({
     id_tagihan: "",
     tanggal: "",
     jumlah: 0,
-    metode: "",
+    metode: "BANK",
     bank: "",
   });
 
+  // ===================================================
+  // LOAD TAGIHAN
+  // ===================================================
+
   useEffect(() => {
-    fetch(`/api/proyek/tagihan?id_proyek=${id}`)
-      .then((r) => r.json())
-      .then((d: TagihanItem[]) => setTagihan(d));
-  }, [id]);
+    async function loadTagihan(): Promise<void> {
+      try {
+        setLoadingTagihan(true);
+
+        const res = await fetch(
+          `/api/proyek/tagihan?id_proyek=${encodeURIComponent(proyekId)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        const result: unknown = await res.json();
+
+        if (!res.ok) {
+          throw new Error("Gagal mengambil daftar tagihan proyek.");
+        }
+
+        if (!Array.isArray(result)) {
+          throw new Error("Format data tagihan tidak valid.");
+        }
+
+        setTagihan(result as TagihanItem[]);
+      } catch (error: unknown) {
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Gagal mengambil tagihan proyek.",
+          "error",
+        );
+      } finally {
+        setLoadingTagihan(false);
+      }
+    }
+
+    if (proyekId) {
+      void loadTagihan();
+    }
+  }, [proyekId, showToast]);
+
+  // ===================================================
+  // HANDLE CHANGE
+  // ===================================================
 
   function handleChange<K extends keyof FormState>(
     field: K,
     value: FormState[K],
   ): void {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
   }
+
+  // ===================================================
+  // CHANGE METODE
+  // ===================================================
+
+  function handleMetodeChange(metode: MetodePenerimaanProyek): void {
+    setForm((previous) => ({
+      ...previous,
+      metode,
+      bank: metode === "BANK" ? previous.bank : "",
+    }));
+  }
+
+  // ===================================================
+  // SUBMIT
+  // ===================================================
 
   async function handleSubmit(): Promise<void> {
-    const parsed = ProyekPenerimaanSchema.safeParse(form);
+    try {
+      if (!form.id_tagihan) {
+        showToast("Tagihan proyek wajib dipilih.", "error");
+        return;
+      }
 
-    if (!parsed.success) {
-      const message =
-        parsed.error.issues[0]?.message ?? "Input tidak valid";
+      if (!form.tanggal) {
+        showToast("Tanggal penerimaan wajib diisi.", "error");
+        return;
+      }
 
-      showToast(message, "error");
-      return;
+      if (!Number.isFinite(form.jumlah) || form.jumlah <= 0) {
+        showToast("Jumlah penerimaan harus lebih besar dari 0.", "error");
+        return;
+      }
+
+      if (form.metode === "BANK" && !form.bank.trim()) {
+        showToast("Bank wajib dipilih untuk metode BANK.", "error");
+        return;
+      }
+
+      const payload = {
+        id_tagihan: form.id_tagihan,
+        tanggal: form.tanggal,
+        jumlah: Number(form.jumlah),
+        metode: form.metode,
+        bank: form.metode === "BANK" ? form.bank.trim() : undefined,
+      };
+
+      const parsed = ProyekPenerimaanSchema.safeParse(payload);
+
+      if (!parsed.success) {
+        const message =
+          parsed.error.issues[0]?.message ?? "Data penerimaan tidak valid.";
+
+        showToast(message, "error");
+        return;
+      }
+
+      setSaving(true);
+
+      const res = await fetch("/api/proyek/penerimaan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(parsed.data),
+      });
+
+      const result: unknown = await res.json();
+
+      if (!res.ok) {
+        const errorMessage =
+          typeof result === "object" &&
+          result !== null &&
+          "error" in result &&
+          typeof result.error === "string"
+            ? result.error
+            : "Gagal menyimpan penerimaan.";
+
+        throw new Error(errorMessage);
+      }
+
+      showToast("Penerimaan proyek berhasil disimpan.", "success");
+
+      router.push(`/proyek/${proyekId}/penerimaan`);
+
+      router.refresh();
+    } catch (error: unknown) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Gagal menyimpan penerimaan proyek.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(true);
-
-    const res = await fetch("/api/proyek/penerimaan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed.data),
-    });
-
-    setSaving(false);
-
-    if (!res.ok) {
-      const err = await res.json();
-      showToast(err.error ?? "Gagal menyimpan penerimaan", "error");
-      return;
-    }
-
-    showToast("Penerimaan & jurnal berhasil dibuat", "success");
-    router.push(`/proyek/${id}/penerimaan`);
-    router.refresh();
   }
+
+  // ===================================================
+  // RENDER
+  // ===================================================
 
   return (
     <div className="max-w-4xl mx-auto">
       <Card title="Tambah Penerimaan Proyek">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="text-sm font-medium">Tagihan</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* ==========================================
+              TAGIHAN
+          ========================================== */}
+
+          <div className="col-span-1 md:col-span-2">
+            <label className="block text-sm font-medium mb-1">Tagihan</label>
+
             <select
-              className="w-full border rounded p-2"
+              className="w-full border rounded px-3 py-2"
               value={form.id_tagihan}
-              onChange={(e) => handleChange("id_tagihan", e.target.value)}
+              disabled={loadingTagihan || saving}
+              onChange={(event) =>
+                handleChange("id_tagihan", event.target.value)
+              }
             >
-              <option value="">-- Pilih Tagihan --</option>
-              {tagihan.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nomor_invoice} – {t.nilai.toLocaleString("id-ID")}
+              <option value="">
+                {loadingTagihan ? "Memuat tagihan..." : "-- Pilih Tagihan --"}
+              </option>
+
+              {tagihan.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.nomor_invoice} - Rp{" "}
+                  {Number(item.grand_total || item.nilai).toLocaleString(
+                    "id-ID",
+                  )}
                 </option>
               ))}
             </select>
+
+            <p className="text-xs text-gray-500 mt-1">
+              Pilih tagihan yang akan menerima pembayaran.
+            </p>
           </div>
 
+          {/* ==========================================
+              TANGGAL
+          ========================================== */}
+
           <Input
-            label="Tanggal"
+            label="Tanggal Penerimaan"
             type="date"
             value={form.tanggal}
-            onChange={(e) => handleChange("tanggal", e.target.value)}
+            disabled={saving}
+            onChange={(event) => handleChange("tanggal", event.target.value)}
           />
 
+          {/* ==========================================
+              JUMLAH
+          ========================================== */}
+
           <Input
-            label="Jumlah"
+            label="Jumlah Penerimaan"
             type="number"
+            min={0}
             value={form.jumlah}
-            onChange={(e) => handleChange("jumlah", Number(e.target.value))}
+            disabled={saving}
+            onChange={(event) =>
+              handleChange("jumlah", Number(event.target.value))
+            }
           />
 
-          <Input
-            label="Metode"
-            value={form.metode}
-            onChange={(e) => handleChange("metode", e.target.value)}
-          />
+          {/* ==========================================
+              METODE
+          ========================================== */}
 
-          <Input
-            label="Bank"
-            value={form.bank}
-            onChange={(e) => handleChange("bank", e.target.value)}
-          />
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Metode Pembayaran
+            </label>
+
+            <select
+              className="w-full border rounded px-3 py-2"
+              value={form.metode}
+              disabled={saving}
+              onChange={(event) =>
+                handleMetodeChange(event.target.value as MetodePenerimaanProyek)
+              }
+            >
+              <option value="KAS">KAS</option>
+
+              <option value="BANK">BANK</option>
+            </select>
+          </div>
+
+          {/* ==========================================
+              BANK
+          ========================================== */}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Rekening Bank
+            </label>
+
+            <select
+              className="w-full border rounded px-3 py-2"
+              value={form.bank}
+              disabled={saving || form.metode !== "BANK"}
+              onChange={(event) => handleChange("bank", event.target.value)}
+            >
+              <option value="">-- Pilih Bank --</option>
+              <option value="BNI - 1918768145">BNI - 1918768145</option>
+              <option value="BCA">BCA</option>
+              <option value="MANDIRI">MANDIRI</option>
+              <option value="Artha Graha">Artha Graha</option>
+            </select>
+
+            {form.metode === "KAS" && (
+              <p className="text-xs text-gray-500 mt-1">
+                Rekening bank tidak diperlukan untuk penerimaan KAS.
+              </p>
+            )}
+          </div>
         </div>
+
+        {/* ============================================
+            ACTION
+        ============================================ */}
 
         <div className="flex gap-3 mt-6">
           <Button
             variant="secondary"
-            onClick={() => router.push(`/proyek/${id}/penerimaan`)}
+            disabled={saving}
+            onClick={() => router.push(`/proyek/${proyekId}/penerimaan`)}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Kembali
           </Button>
 
-          <Button onClick={handleSubmit} disabled={saving}>
+          <Button
+            onClick={() => void handleSubmit()}
+            disabled={saving || loadingTagihan}
+          >
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />

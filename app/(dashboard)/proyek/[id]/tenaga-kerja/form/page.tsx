@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Save, ArrowLeft, Loader2 } from "lucide-react";
+import type { TipeTenagaKerja, StatusTenagaKerja } from "@/types/proyek";
 
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -12,9 +13,14 @@ import { useToast } from "@/components/ui/toast-context";
 type FormState = {
   nama: string;
   jabatan: string;
-  tipe: "harian" | "borongan" | "staff";
+  tipe: TipeTenagaKerja;
   upah: number;
   periode: string;
+  tanggal_mulai: string;
+  tanggal_selesai: string;
+  status: StatusTenagaKerja;
+  keterangan: string;
+  metode_pembayaran: "KAS" | "BANK" | "HUTANG";
 };
 
 export default function CreateTenagaKerjaPage() {
@@ -28,9 +34,14 @@ export default function CreateTenagaKerjaPage() {
   const [form, setForm] = useState<FormState>({
     nama: "",
     jabatan: "",
-    tipe: "harian",
+    tipe: "OPERATOR_ALAT_BERAT",
     upah: 0,
     periode: "",
+    tanggal_mulai: "",
+    tanggal_selesai: "",
+    status: "AKTIF",
+    keterangan: "",
+    metode_pembayaran: "BANK",
   });
 
   function handleChange<K extends keyof FormState>(
@@ -41,8 +52,28 @@ export default function CreateTenagaKerjaPage() {
   }
 
   async function handleSubmit(): Promise<void> {
-    if (form.upah < 0) {
-      showToast("Upah tidak boleh negatif", "error");
+    if (!form.nama.trim()) {
+      showToast("Nama wajib diisi", "error");
+      return;
+    }
+
+    if (!form.jabatan.trim()) {
+      showToast("Jabatan wajib diisi", "error");
+      return;
+    }
+
+    if (!form.tanggal_mulai) {
+      showToast("Tanggal mulai wajib diisi", "error");
+      return;
+    }
+
+    if (form.tanggal_selesai && form.tanggal_selesai < form.tanggal_mulai) {
+      showToast("Tanggal selesai tidak boleh lebih kecil", "error");
+      return;
+    }
+
+    if (form.upah <= 0) {
+      showToast("Upah harus lebih besar dari nol", "error");
       return;
     }
 
@@ -58,14 +89,21 @@ export default function CreateTenagaKerjaPage() {
         tipe: form.tipe,
         upah: form.upah,
         periode: form.periode || null,
+        tanggal_mulai: form.tanggal_mulai,
+        tanggal_selesai: form.tanggal_selesai || null,
+        status: form.status,
+        keterangan: form.keterangan || null,
+        metode_pembayaran: form.metode_pembayaran,
       }),
     });
+
+    const result = await res.json();
+    console.log(result);
 
     setSaving(false);
 
     if (!res.ok) {
-      const err = await res.json();
-      showToast(err.error ?? "Gagal menyimpan tenaga kerja", "error");
+      showToast(result.error ?? "Gagal", "error");
       return;
     }
 
@@ -99,9 +137,13 @@ export default function CreateTenagaKerjaPage() {
                 handleChange("tipe", e.target.value as FormState["tipe"])
               }
             >
-              <option value="harian">Harian</option>
-              <option value="borongan">Borongan</option>
-              <option value="staff">Staff</option>
+              <option value="MANAJEMEN_PROYEK">Manajemen Proyek</option>
+              <option value="TENAGA_AHLI">Tenaga Ahli</option>
+              <option value="TEKNISI_ANALIS">Teknisi / Analis</option>
+              <option value="OPERATOR_ALAT_BERAT">Operator Alat Berat</option>
+              <option value="OPERATOR_ANGKUTAN">Operator Angkutan</option>
+              <option value="PEKERJA_LAPANGAN">Pekerja Lapangan</option>
+              <option value="ADMINISTRASI">Administrasi</option>
             </select>
           </div>
 
@@ -117,6 +159,60 @@ export default function CreateTenagaKerjaPage() {
             placeholder="Contoh: Jan 2026"
             value={form.periode}
             onChange={(e) => handleChange("periode", e.target.value)}
+          />
+
+          <div>
+            <label className="text-sm font-medium">Metode Pembayaran</label>
+
+            <select
+              className="w-full rounded border p-2"
+              value={form.metode_pembayaran}
+              onChange={(e) =>
+                handleChange(
+                  "metode_pembayaran",
+                  e.target.value as FormState["metode_pembayaran"],
+                )
+              }
+            >
+              <option value="KAS">Kas</option>
+              <option value="BANK">Bank (BNI)</option>
+              <option value="HUTANG">Hutang</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Status</label>
+            <select
+              className="w-full rounded border p-2"
+              value={form.status}
+              onChange={(e) =>
+                handleChange("status", e.target.value as StatusTenagaKerja)
+              }
+            >
+              <option value="AKTIF">AKTIF</option>
+              <option value="SELESAI">SELESAI</option>
+              <option value="DIBATALKAN">DIBATALKAN</option>
+            </select>
+          </div>
+
+          <Input
+            type="date"
+            label="Tanggal Mulai"
+            value={form.tanggal_mulai}
+            onChange={(e) => handleChange("tanggal_mulai", e.target.value)}
+          />
+
+          <Input
+            type="date"
+            label="Tanggal Selesai"
+            value={form.tanggal_selesai}
+            onChange={(e) => handleChange("tanggal_selesai", e.target.value)}
+          />
+
+          <Input
+            label="Keterangan"
+            value={form.keterangan}
+            onChange={(e) => handleChange("keterangan", e.target.value)}
           />
         </div>
 

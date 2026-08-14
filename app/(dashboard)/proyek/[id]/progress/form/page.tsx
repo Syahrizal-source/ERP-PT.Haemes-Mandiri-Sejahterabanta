@@ -10,17 +10,35 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { useToast } from "@/components/ui/toast-context";
 
-/**
- * ZOD VALIDATION (ANTI MINUS)
- */
 const progressSchema = z.object({
-  tanggal: z.string().min(1, "Tanggal wajib diisi"),
-  target_volume: z.number().min(0, "Target tidak boleh minus"),
-  realisasi_volume: z.number().min(0, "Realisasi tidak boleh minus"),
+  tanggal: z.string().min(1),
+  no_bukti: z.string().trim().min(1),
+  target_volume: z.number().min(0),
+  realisasi_volume: z.number().min(0),
+  nilai_progress: z.number().min(0),
+  metode_pembayaran: z.enum(["KAS", "BANK", "HUTANG"]),
+  status: z.enum(["ON_PROGRESS", "SELESAI", "TERLAMBAT", "DIBATALKAN"]),
+  periode: z.string().trim(),
+  lokasi: z.string().trim(),
+  pic: z.string().trim(),
+  satuan: z.string().trim(),
   keterangan: z.string().optional(),
 });
 
-type ProgressForm = z.infer<typeof progressSchema>;
+type ProgressForm = {
+  tanggal: string;
+  no_bukti: string;
+  target_volume: number;
+  realisasi_volume: number;
+  satuan: string;
+  nilai_progress: number;
+  metode_pembayaran: "KAS" | "BANK" | "HUTANG";
+  status: "ON_PROGRESS" | "SELESAI" | "TERLAMBAT" | "DIBATALKAN";
+  periode: string;
+  lokasi: string;
+  pic: string;
+  keterangan: string;
+};
 
 export default function CreateProgressPage() {
   const params = useParams();
@@ -32,9 +50,17 @@ export default function CreateProgressPage() {
   const [saving, setSaving] = useState<boolean>(false);
 
   const [form, setForm] = useState<ProgressForm>({
-    tanggal: "",
+    tanggal: new Date().toISOString().slice(0, 10),
+    no_bukti: "",
     target_volume: 0,
     realisasi_volume: 0,
+    satuan: "m3",
+    nilai_progress: 0,
+    metode_pembayaran: "BANK",
+    status: "ON_PROGRESS",
+    periode: "",
+    lokasi: "",
+    pic: "",
     keterangan: "",
   });
 
@@ -63,7 +89,18 @@ export default function CreateProgressPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id_proyek: proyekId,
-        ...parsed.data,
+        tanggal: form.tanggal,
+        no_bukti: form.no_bukti,
+        target_volume: form.target_volume,
+        realisasi_volume: form.realisasi_volume,
+        satuan: form.satuan,
+        nilai_progress: form.nilai_progress,
+        metode_pembayaran: form.metode_pembayaran,
+        status: form.status,
+        periode: form.periode,
+        lokasi: form.lokasi,
+        pic: form.pic,
+        keterangan: form.keterangan,
       }),
     });
 
@@ -92,6 +129,22 @@ export default function CreateProgressPage() {
           />
 
           <Input
+            label="No Bukti"
+            value={form.no_bukti}
+            placeholder="PRG-20260806-001"
+            onChange={(e) => handleChange("no_bukti", e.target.value)}
+          />
+
+          <Input
+            label="Nilai Progress"
+            type="number"
+            value={form.nilai_progress}
+            onChange={(e) =>
+              handleChange("nilai_progress", Number(e.target.value))
+            }
+          />
+
+          <Input
             label="Target Volume"
             type="number"
             value={form.target_volume}
@@ -108,7 +161,66 @@ export default function CreateProgressPage() {
               handleChange("realisasi_volume", Number(e.target.value))
             }
           />
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Metode Pembayaran
+            </label>
+            <select
+              className="w-full rounded-md border p-2"
+              value={form.metode_pembayaran}
+              onChange={(e) =>
+                handleChange(
+                  "metode_pembayaran",
+                  e.target.value as ProgressForm["metode_pembayaran"],
+                )
+              }
+            >
+              <option value="KAS">Kas Proyek</option>
+              <option value="BANK">BNI - 1918768145</option>
+              <option value="HUTANG">Hutang Supplier</option>
+            </select>
+          </div>
 
+          <div>
+            <label className="mb-1 block text-sm font-medium">Progress</label>
+            <select
+              className="w-full rounded-md border p-2"
+              value={form.status}
+              onChange={(e) =>
+                handleChange("status", e.target.value as ProgressForm["status"])
+              }
+            >
+              <option value="ON_PROGRESS">ON PROGRESS</option>
+              <option value="SELESAI">SELESAI</option>
+              <option value="TERLAMBAT">TERLAMBAT</option>
+              <option value="DIBATALKAN">DIBATALKAN</option>
+            </select>
+          </div>
+
+          <Input
+            label="Periode"
+            placeholder="Agustus 2026"
+            value={form.periode}
+            onChange={(e) => handleChange("periode", e.target.value)}
+          />
+
+          <Input
+            label="PIC"
+            value={form.pic}
+            onChange={(e) => handleChange("pic", e.target.value)}
+          />
+
+          <Input
+            label="Lokasi"
+            value={form.lokasi}
+            onChange={(e) => handleChange("lokasi", e.target.value)}
+          />
+
+          <Input
+            label="Satuan"
+            value={form.satuan}
+            onChange={(e) => handleChange("satuan", e.target.value)}
+          />
           <Input
             label="Keterangan"
             value={form.keterangan ?? ""}

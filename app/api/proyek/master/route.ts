@@ -25,10 +25,49 @@ export async function GET() {
  */
 export async function POST(req: NextRequest) {
   try {
-    const body: Omit<ProyekMaster, "id"> = await req.json();
+    type CreateProyekRequest = Omit<ProyekMaster, "id" | "created_at">;
 
-    // VALIDASI AMAN
+    const body: CreateProyekRequest = await req.json();
+
     validatePositive(body.nilai_kontrak, "Nilai Kontrak");
+
+    if (body.margin_target != null) {
+      validatePositive(body.margin_target, "Margin Target");
+    }
+
+    const JENIS_PROYEK = [
+      "PENGURUGAN",
+      "CUT_FILL",
+      "LAND_CLEARING",
+      "JALAN",
+      "DRAINASE",
+      "APARTEMEN",
+      "GEDUNG",
+      "PERUMAHAN",
+    ] as const;
+
+    const STATUS_PROYEK = [
+      "DRAFT",
+      "OPEN",
+      "BERJALAN",
+      "SELESAI",
+      "DITUTUP",
+      "BATAL",
+    ] as const;
+
+    const METODE_KONTRAK = ["LUMPSUM", "UNIT_PRICE"] as const;
+
+    if (!JENIS_PROYEK.includes(body.jenis_proyek)) {
+      throw new Error("Jenis proyek tidak valid.");
+    }
+
+    if (!STATUS_PROYEK.includes(body.status)) {
+      throw new Error("Status proyek tidak valid.");
+    }
+
+    if (!METODE_KONTRAK.includes(body.metode_kontrak)) {
+      throw new Error("Metode kontrak tidak valid.");
+    }
 
     const { data, error } = await db
       .from("proyek_master")
@@ -39,8 +78,6 @@ export async function POST(req: NextRequest) {
     if (error) {
       throw error;
     }
-
-    // 🔥 PENTING: return ID untuk redirect ke RAB
     return NextResponse.json({ id: data.id });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });

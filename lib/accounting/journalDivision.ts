@@ -5,17 +5,12 @@ export type JournalDivision =
   | "ALAT BERAT"
   | "PROYEK"
   | "ACCOUNTING"
-  | "PAJAK"
-  | "KEBUN SAWIT";
+  | "PAJAK";
 
 export function getJournalDivision(kodeCoa: string): JournalDivision {
   const hierarchy = getCorporateHierarchy(kodeCoa);
 
   const division = hierarchy.division?.trim().toUpperCase() ?? "";
-
-  if (division.startsWith("JASA PERKEBUNAN")) {
-    return "KEBUN SAWIT";
-  }
 
   switch (division) {
     case "ARMADA":

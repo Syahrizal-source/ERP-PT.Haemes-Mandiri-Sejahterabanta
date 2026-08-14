@@ -9,10 +9,7 @@ type Context = {
 /* =====================
    GET DETAIL
 ===================== */
-export async function GET(
-  _: NextRequest,
-  context: Context,
-) {
+export async function GET(_: NextRequest, context: Context) {
   try {
     const { id } = await context.params;
 
@@ -23,10 +20,7 @@ export async function GET(
       .single();
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: error.message }, { status: 404 });
     }
 
     return NextResponse.json(data);
@@ -41,10 +35,7 @@ export async function GET(
 /* =====================
    UPDATE
 ===================== */
-export async function PUT(
-  req: NextRequest,
-  context: Context,
-) {
+export async function PUT(req: NextRequest, context: Context) {
   try {
     const { id } = await context.params;
     const body = await req.json();
@@ -68,20 +59,14 @@ export async function PUT(
       message: "Alat berat berhasil diupdate",
     });
   } catch (e: unknown) {
-    return NextResponse.json(
-      { error: (e as Error).message },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
 }
 
 /* =====================
    DELETE
 ===================== */
-export async function DELETE(
-  _: NextRequest,
-  context: Context,
-) {
+export async function DELETE(_: NextRequest, context: Context) {
   try {
     const { id } = await context.params;
 

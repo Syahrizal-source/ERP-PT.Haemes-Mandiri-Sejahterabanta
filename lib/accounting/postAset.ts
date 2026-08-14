@@ -7,43 +7,37 @@ export async function postAset(
   no_bukti: string,
   keterangan: string,
   nominal: number,
-  ppn: number,
-  pph23: number,
 ): Promise<number> {
-  const aset = await getCoaMappingDetail("ASET", "ASET");
-  const kas = await getCoaMappingDetail("ASET", "KAS");
-  const hutang = await getCoaMappingDetail("ASET", "HUTANG");
+  // 1106.01.00 - Uang Muka Pembelian
+  const uangMuka = await getCoaMappingDetail("ASET", "UANG_MUKA_PEMBELIAN");
 
-  const totalAset: number = nominal + ppn;
-  const kasKeluar: number = totalAset - pph23;
+  // 1101.00.00 Kas atau 1102.05.00 BNI - 1918768145
+  const kasBank = await getCoaMappingDetail("ASET", "KAS");
 
-  if (kasKeluar <= 0) {
-    throw new Error("Nilai aset tidak valid");
+  if (nominal <= 0) {
+    throw new Error("Nominal pembayaran harus lebih besar dari 0.");
   }
 
   const lines: JurnalLine[] = [
     {
-      id_coa: aset.id_coa,
-      debit: totalAset,
+      id_coa: uangMuka.id_coa,
+      debit: nominal,
       kredit: 0,
     },
     {
-      id_coa: kas.id_coa,
+      id_coa: kasBank.id_coa,
       debit: 0,
-      kredit: kasKeluar,
-    },
-    {
-      id_coa: hutang.id_coa,
-      debit: 0,
-      kredit: pph23,
+      kredit: nominal,
     },
   ];
 
-  const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
-  const totalKredit = lines.reduce((s, l) => s + l.kredit, 0);
+  const totalDebit = lines.reduce((total, item) => total + item.debit, 0);
+  const totalKredit = lines.reduce((total, item) => total + item.kredit, 0);
 
   if (totalDebit !== totalKredit) {
-    throw new Error("Jurnal aset tidak balance");
+    throw new Error(
+      `Jurnal aset tidak balance. Debit=${totalDebit}, Kredit=${totalKredit}`,
+    );
   }
 
   return postJournal({

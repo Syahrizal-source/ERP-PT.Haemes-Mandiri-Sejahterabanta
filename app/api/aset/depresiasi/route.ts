@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
 import { postDepresiasiAset } from "@/lib/accounting/postDepresiasiAset";
+import { KategoriAset } from "@/lib/accounting/getcoamapping";
 
 export async function POST(): Promise<NextResponse> {
   try {
@@ -8,12 +9,13 @@ export async function POST(): Promise<NextResponse> {
     const tanggal = today.toISOString().split("T")[0];
 
     const { data: asetList, error } = await db.from("aset").select(`
-  id_aset,
-  nama,
-  depresiasi_bulanan,
-  akumulasi_depresiasi,
-  nilai_perolehan,
-  last_depresiasi
+id_aset,
+kategori_aset,
+nama,
+depresiasi_bulanan,
+akumulasi_depresiasi,
+nilai_perolehan,
+last_depresiasi
 `);
 
     if (error) {
@@ -33,7 +35,7 @@ export async function POST(): Promise<NextResponse> {
           lastDate.getMonth() === today.getMonth() &&
           lastDate.getFullYear() === today.getFullYear()
         ) {
-          continue; // sudah dihitung bulan ini
+          continue;
         }
       }
 
@@ -46,6 +48,7 @@ export async function POST(): Promise<NextResponse> {
           tanggal,
           noBukti,
           `Depresiasi aset ${aset.nama}`,
+          aset.kategori_aset as KategoriAset,
           depresiasi,
         );
 

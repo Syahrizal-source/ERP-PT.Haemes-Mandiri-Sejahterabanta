@@ -13,9 +13,20 @@ import { useToast } from "@/components/ui/toast-context";
 type FormState = {
   nama: string;
   jabatan: string;
-  tipe: "harian" | "borongan" | "staff";
+  tipe:
+    | "MANAJEMEN_PROYEK"
+    | "TENAGA_AHLI"
+    | "TEKNISI_ANALIS"
+    | "OPERATOR_ALAT_BERAT"
+    | "OPERATOR_ANGKUTAN"
+    | "PEKERJA_LAPANGAN"
+    | "ADMINISTRASI";
   upah: number;
   periode: string;
+  tanggal_mulai: string;
+  tanggal_selesai: string;
+  status: "AKTIF" | "SELESAI" | "DIBATALKAN";
+  keterangan: string;
 };
 
 export default function EditTenagaKerjaPage() {
@@ -33,11 +44,14 @@ export default function EditTenagaKerjaPage() {
   const [form, setForm] = useState<FormState>({
     nama: "",
     jabatan: "",
-    tipe: "harian",
+    tipe: "OPERATOR_ALAT_BERAT",
     upah: 0,
     periode: "",
+    tanggal_mulai: "",
+    tanggal_selesai: "",
+    status: "AKTIF",
+    keterangan: "",
   });
-
   useEffect(() => {
     async function fetchData(): Promise<void> {
       const res = await fetch(`/api/proyek/tenaga-kerja?id_proyek=${proyekId}`);
@@ -88,6 +102,10 @@ export default function EditTenagaKerjaPage() {
         tipe: form.tipe,
         upah: form.upah,
         periode: form.periode || null,
+        tanggal_mulai: form.tanggal_mulai,
+        tanggal_selesai: form.tanggal_selesai || null,
+        status: form.status,
+        keterangan: form.keterangan || null,
       }),
     });
 
@@ -108,6 +126,11 @@ export default function EditTenagaKerjaPage() {
     const res = await fetch(`/api/proyek/tenaga-kerja/${tkId}`, {
       method: "DELETE",
     });
+
+    if (form.tanggal_selesai && form.tanggal_selesai < form.tanggal_mulai) {
+      showToast("Tanggal selesai tidak boleh lebih kecil", "error");
+      return;
+    }
 
     if (!res.ok) {
       showToast("Gagal menghapus tenaga kerja", "error");
@@ -153,9 +176,13 @@ export default function EditTenagaKerjaPage() {
                 handleChange("tipe", e.target.value as FormState["tipe"])
               }
             >
-              <option value="harian">Harian</option>
-              <option value="borongan">Borongan</option>
-              <option value="staff">Staff</option>
+              <option value="MANAJEMEN_PROYEK">Manajemen Proyek</option>
+              <option value="TENAGA_AHLI">Tenaga Ahli</option>
+              <option value="TEKNISI_ANALIS">Teknisi / Analis</option>
+              <option value="OPERATOR_ALAT_BERAT">Operator Alat Berat</option>
+              <option value="OPERATOR_ANGKUTAN">Operator Angkutan</option>
+              <option value="PEKERJA_LAPANGAN">Pekerja Lapangan</option>
+              <option value="ADMINISTRASI">Administrasi</option>
             </select>
           </div>
 
@@ -170,6 +197,42 @@ export default function EditTenagaKerjaPage() {
             label="Periode"
             value={form.periode}
             onChange={(e) => handleChange("periode", e.target.value)}
+          />
+
+          <div>
+            <label>Status</label>
+
+            <select
+              className="w-full border rounded p-2"
+              value={form.status}
+              onChange={(e) =>
+                handleChange("status", e.target.value as FormState["status"])
+              }
+            >
+              <option value="AKTIF">AKTIF</option>
+              <option value="SELESAI">SELESAI</option>
+              <option value="DIBATALKAN">DIBATALKAN</option>
+            </select>
+          </div>
+
+          <Input
+            label="Tanggal Mulai"
+            type="date"
+            value={form.tanggal_mulai}
+            onChange={(e) => handleChange("tanggal_mulai", e.target.value)}
+          />
+
+          <Input
+            label="Tanggal Selesai"
+            type="date"
+            value={form.tanggal_selesai}
+            onChange={(e) => handleChange("tanggal_selesai", e.target.value)}
+          />
+
+          <Input
+            label="Keterangan"
+            value={form.keterangan}
+            onChange={(e) => handleChange("keterangan", e.target.value)}
           />
         </div>
 

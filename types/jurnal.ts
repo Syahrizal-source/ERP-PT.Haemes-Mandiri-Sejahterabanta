@@ -7,9 +7,7 @@ export type JurnalSumber =
   | "ALAT_BERAT"
   | "KAS_ALAT_BERAT"
   | "PROYEK"
-  | "KAS_PROYEK"
-  | "KEBUN"
-  | "KAS_KEBUN";
+  | "KAS_PROYEK";
 
 export type JurnalLine = {
   id_coa: number;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Save, ArrowLeft, Loader2 } from "lucide-react";
 
@@ -10,17 +10,19 @@ import Button from "@/components/ui/Button";
 import { useToast } from "@/components/ui/toast-context";
 
 type RABForm = {
-  kategori:
-    | "alat"
-    | "tenaga_kerja"
-    | "bbm"
-    | "sparepart"
-    | "subcontract"
-    | "overhead";
+  id_kategori: number;
   uraian: string;
   volume: number;
   satuan: string;
   harga_satuan: number;
+  keterangan: string;
+};
+
+type KategoriBiaya = {
+  id: number;
+  kode: string;
+  nama: string;
+  jenis: "BIAYA" | "MATERIAL";
 };
 
 export default function EditRABPage() {
@@ -33,14 +35,20 @@ export default function EditRABPage() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
+  const [kategoriList, setKategoriList] = useState<KategoriBiaya[]>([]);
 
   const [form, setForm] = useState<RABForm>({
-    kategori: "alat",
+    id_kategori: 0,
     uraian: "",
     volume: 0,
     satuan: "",
     harga_satuan: 0,
+    keterangan: "",
   });
+
+  const total = useMemo(() => {
+    return Number(form.volume) * Number(form.harga_satuan);
+  }, [form.volume, form.harga_satuan]);
 
   useEffect(() => {
     async function fetchData(): Promise<void> {
@@ -54,11 +62,12 @@ export default function EditRABPage() {
       const data: RABForm = await res.json();
 
       setForm({
-        kategori: data.kategori,
+        id_kategori: data.id_kategori,
         uraian: data.uraian ?? "",
         volume: data.volume,
         satuan: data.satuan ?? "",
         harga_satuan: data.harga_satuan,
+        keterangan: data.keterangan ?? "",
       });
 
       setLoading(false);
@@ -66,6 +75,19 @@ export default function EditRABPage() {
 
     fetchData();
   }, [rabId, showToast]);
+
+  useEffect(() => {
+    async function loadKategori() {
+      const res = await fetch("/api/master/kategori-biaya-proyek");
+
+      if (!res.ok) return;
+
+      const data: KategoriBiaya[] = await res.json();
+      setKategoriList(data);
+    }
+
+    loadKategori();
+  }, []);
 
   function handleChange<K extends keyof RABForm>(
     field: K,
@@ -115,18 +137,33 @@ export default function EditRABPage() {
           <div>
             <label className="text-sm font-medium">Kategori</label>
             <select
-              className="w-full border rounded p-2"
-              value={form.kategori}
+              className="w-full rounded-md border border-gray-300 p-2"
+              value={form.id_kategori}
               onChange={(e) =>
-                handleChange("kategori", e.target.value as RABForm["kategori"])
+                handleChange("id_kategori", Number(e.target.value))
               }
             >
-              <option value="alat">Alat</option>
-              <option value="tenaga_kerja">Tenaga Kerja</option>
-              <option value="bbm">BBM</option>
-              <option value="sparepart">Sparepart</option>
-              <option value="subcontract">Subcontract</option>
-              <option value="overhead">Overhead</option>
+              <option value={0}>-- Pilih Kategori --</option>
+
+              <optgroup label="BIAYA">
+                {kategoriList
+                  .filter((x) => x.jenis === "BIAYA")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nama}
+                    </option>
+                  ))}
+              </optgroup>
+
+              <optgroup label="MATERIAL">
+                {kategoriList
+                  .filter((x) => x.jenis === "MATERIAL")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nama}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
           </div>
 
@@ -157,6 +194,14 @@ export default function EditRABPage() {
               handleChange("harga_satuan", Number(e.target.value))
             }
           />
+
+          <Input
+            label="Keterangan"
+            value={form.keterangan}
+            onChange={(e) => handleChange("keterangan", e.target.value)}
+          />
+
+          <Input label="Total" value={total.toLocaleString("id-ID")} readOnly />
         </div>
 
         <div className="flex gap-3 mt-6">

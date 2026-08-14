@@ -1,83 +1,97 @@
 import { z } from "zod";
 
-/* =========================
-   STATUS PIUTANG PROYEK
-========================= */
+// =====================================================
+// STATUS PIUTANG PROYEK
+// =====================================================
 
 export const piutangProyekStatusSchema = z.enum([
   "Unpaid (Menunggu Pembayaran)",
-
   "Partial (Pembayaran Sebagian)",
-
   "Paid (Pembayaran Penuh/ Lunas)",
 ]);
 
-/* =========================
-   PIUTANG PROYEK SCHEMA
-========================= */
+// =====================================================
+// INPUT PIUTANG PROYEK
+// Digunakan untuk membuat / menghubungkan piutang
+// dengan proyek_tagihan
+// =====================================================
 
 export const piutangProyekSchema = z.object({
   id_proyek: z.string().uuid("ID proyek tidak valid"),
+
+  id_tagihan: z.string().uuid("ID tagihan tidak valid"),
+
   tanggal: z.string().min(1, "Tanggal wajib diisi"),
 
-  customer: z.string().min(2, "Customer wajib diisi"),
+  customer: z.string().trim().min(2, "Customer wajib diisi"),
 
   tanggal_pembayaran: z.string().nullable(),
 
-  nilai_piutang: z.number().min(0, "Nilai piutang tidak valid"),
+  nilai_piutang: z
+    .number()
+    .finite("Nilai piutang tidak valid")
+    .min(0, "Nilai piutang tidak boleh minus"),
 
-  penerimaan: z.number().min(0, "Penerimaan tidak valid"),
-
-  saldo: z.number().min(0, "Saldo tidak valid"),
+  penerimaan: z
+    .number()
+    .finite("Penerimaan tidak valid")
+    .min(0, "Penerimaan tidak boleh minus"),
 
   keterangan: z.string().nullable(),
 
   status: piutangProyekStatusSchema,
 });
 
-/* =========================
-   VALIDASI SALDO
-========================= */
+// =====================================================
+// VALIDASI PIUTANG PROYEK
+// =====================================================
 
 export function validatePiutangProyek(data: PiutangProyekInput): void {
-  const saldo = Number(data.nilai_piutang) - Number(data.penerimaan);
+  const nilaiPiutang = Number(data.nilai_piutang);
+  const penerimaan = Number(data.penerimaan);
 
-  if (saldo !== Number(data.saldo)) {
-    throw new Error("Saldo piutang tidak sesuai");
+  if (!Number.isFinite(nilaiPiutang) || nilaiPiutang < 0) {
+    throw new Error("Nilai piutang tidak valid.");
   }
 
-  if (Number(data.penerimaan) > Number(data.nilai_piutang)) {
-    throw new Error("Penerimaan tidak boleh melebihi nilai piutang");
+  if (!Number.isFinite(penerimaan) || penerimaan < 0) {
+    throw new Error("Penerimaan tidak valid.");
   }
 
-  /* =========================
-     VALIDASI STATUS
-  ========================= */
+  if (penerimaan > nilaiPiutang) {
+    throw new Error("Penerimaan tidak boleh melebihi nilai piutang.");
+  }
+
+  const saldo = nilaiPiutang - penerimaan;
+
+  // ===================================================
+  // VALIDASI STATUS
+  // ===================================================
 
   if (saldo === 0 && data.status !== "Paid (Pembayaran Penuh/ Lunas)") {
-    throw new Error("Status harus Paid jika saldo 0");
+    throw new Error("Status harus Paid jika saldo sudah 0.");
   }
 
   if (
     saldo > 0 &&
-    Number(data.penerimaan) === 0 &&
+    penerimaan === 0 &&
     data.status !== "Unpaid (Menunggu Pembayaran)"
   ) {
-    throw new Error("Status harus Unpaid jika belum ada pembayaran");
+    throw new Error("Status harus Unpaid jika belum ada pembayaran.");
   }
 
   if (
     saldo > 0 &&
-    Number(data.penerimaan) > 0 &&
+    penerimaan > 0 &&
     data.status !== "Partial (Pembayaran Sebagian)"
   ) {
-    throw new Error("Status harus Partial jika pembayaran sebagian");
+    throw new Error("Status harus Partial jika pembayaran sebagian.");
   }
 }
 
-/* =========================
-   TYPES
-========================= */
+// =====================================================
+// TYPES
+// =====================================================
 
 export type PiutangProyekInput = z.infer<typeof piutangProyekSchema>;
 

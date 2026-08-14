@@ -20,7 +20,17 @@ export async function GET(_: NextRequest, context: Context) {
 
     const { data, error } = await db
       .from("proyek_rab")
-      .select("*")
+      .select(
+        `
+    *,
+    kategori:kategori_biaya_proyek(
+      id,
+      kode,
+      nama,
+      jenis
+    )
+  `,
+      )
       .eq("id", id)
       .single();
 
@@ -53,7 +63,39 @@ export async function PUT(req: NextRequest, context: Context) {
       validatePositive(body.harga_satuan, "Harga Satuan");
     }
 
-    const { error } = await db.from("proyek_rab").update(body).eq("id", id);
+    if (body.id_proyek === "") {
+      throw new Error("Proyek wajib dipilih.");
+    }
+
+    if (body.id_kategori === undefined || body.id_kategori === null) {
+      throw new Error("Kategori biaya wajib dipilih.");
+    }
+
+    if (!body.uraian?.trim()) {
+      throw new Error("Uraian wajib diisi.");
+    }
+
+    if (!body.satuan?.trim()) {
+      throw new Error("Satuan wajib diisi.");
+    }
+
+    const updateData = {
+      id_proyek: body.id_proyek,
+      id_kategori: body.id_kategori,
+      uraian: body.uraian,
+      volume: body.volume,
+      satuan: body.satuan,
+      harga_satuan: body.harga_satuan,
+      keterangan: body.keterangan ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await db
+      .from("proyek_rab")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -62,8 +104,13 @@ export async function PUT(req: NextRequest, context: Context) {
     return NextResponse.json({
       message: "RAB berhasil diupdate",
     });
-  } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: err instanceof Error ? err.message : "Terjadi kesalahan.",
+      },
+      { status: 400 },
+    );
   }
 }
 
@@ -74,7 +121,12 @@ export async function DELETE(_: NextRequest, context: Context) {
   try {
     const { id } = await context.params;
 
-    const { error } = await db.from("proyek_rab").delete().eq("id", id);
+    const { data, error } = await db
+      .from("proyek_rab")
+      .delete()
+      .eq("id", id)
+      .select()
+      .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -82,6 +134,7 @@ export async function DELETE(_: NextRequest, context: Context) {
 
     return NextResponse.json({
       message: "RAB berhasil dihapus",
+      data,
     });
   } catch (e: unknown) {
     return NextResponse.json({ error: "Gagal menghapus RAB" }, { status: 500 });
