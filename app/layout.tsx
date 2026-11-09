@@ -17,11 +17,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" suppressHydrationWarning>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <body
-        className={inter.className}
-      >
-        {children}
-      </body>
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }

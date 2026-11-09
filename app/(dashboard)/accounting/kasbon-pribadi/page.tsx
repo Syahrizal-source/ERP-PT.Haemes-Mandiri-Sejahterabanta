@@ -7,7 +7,6 @@ import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import ConfirmModal from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast-context";
 
 type KasbonPribadiRow = {
@@ -40,12 +39,11 @@ export default function KasbonPribadiPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     if (!id) {
       console.error("ID tidak valid");
       return;

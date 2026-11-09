@@ -16,7 +16,18 @@ export interface JurnalKoreksiInput {
   keterangan: string;
   alasan: string;
   id_jurnal_asal: number;
+  id_detail_asal: number;
+  id_coa_tujuan: number;
+  nilai_koreksi: number;
   lines: JurnalKoreksiLineInput[];
+}
+
+export interface JurnalKoreksiRow {
+  id: number;
+  id_jurnal_asal: number;
+  id_jurnal_koreksi: number;
+  alasan: string;
+  created_at: string | null;
 }
 
 /* =========================
@@ -24,11 +35,11 @@ export interface JurnalKoreksiInput {
 ========================= */
 
 export const jurnalKoreksiLineSchema = z.object({
-  id_coa: z.number().positive("COA wajib dipilih"),
+  id_coa: z.number().int().positive("COA wajib dipilih"),
 
-  debit: z.number().min(0, "Debit wajib diisi"),
+  debit: z.number().finite().min(0, "Debit tidak boleh negatif"),
 
-  kredit: z.number().min(0, "Kredit wajib diisi"),
+  kredit: z.number().finite().min(0, "Kredit tidak boleh negatif"),
 });
 
 /* =========================
@@ -50,37 +61,72 @@ export function validateKoreksiLines(lines: JurnalKoreksiLineInput[]): void {
     }
   }
 
-  const totalDebit = lines.reduce(
-    (sum: number, line: JurnalKoreksiLineInput): number =>
-      sum + Number(line.debit),
-    0,
-  );
+  const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
 
-  const totalKredit = lines.reduce(
-    (sum: number, line: JurnalKoreksiLineInput): number =>
-      sum + Number(line.kredit),
-    0,
-  );
+  const totalKredit = lines.reduce((sum, line) => sum + line.kredit, 0);
 
-  if (totalDebit !== totalKredit) {
+  if (Math.abs(totalDebit - totalKredit) > 0.000001) {
     throw new Error("Jurnal koreksi tidak balance");
   }
 }
 
 /* =========================
-   HEADER
+   FORM HEADER
 ========================= */
 
 export const jurnalKoreksiSchema = z.object({
   tanggal: z.string().min(1, "Tanggal wajib diisi"),
 
-  no_bukti: z.string().min(1, "No bukti wajib diisi"),
+  no_bukti: z.string().trim().min(1, "No bukti wajib diisi"),
 
-  keterangan: z.string().min(3, "Keterangan wajib diisi"),
+  keterangan: z.string().trim().min(3, "Keterangan minimal 3 karakter"),
 
-  alasan: z.string().min(3, "Alasan koreksi wajib diisi"),
+  alasan: z.string().trim().min(3, "Alasan koreksi minimal 3 karakter"),
 
-  id_jurnal_asal: z.number().positive("Jurnal asal wajib dipilih"),
+  id_jurnal_asal: z.number().int().positive("Jurnal asal wajib dipilih"),
+
+  id_detail_asal: z.number().int().positive("Detail jurnal asal wajib dipilih"),
+
+  id_coa_tujuan: z.number().int().positive("COA tujuan koreksi wajib dipilih"),
+
+  nilai_koreksi: z
+    .number()
+    .finite()
+    .positive("Nilai koreksi harus lebih besar dari 0"),
 
   lines: z.array(jurnalKoreksiLineSchema).min(1, "Minimal 1 baris jurnal"),
 });
+
+/* =========================
+   DATABASE ROW SCHEMA
+========================= */
+
+export const jurnalKoreksiRowSchema = z.object({
+  id: z.number().int().positive(),
+
+  id_jurnal_asal: z.number().int().positive(),
+
+  id_jurnal_koreksi: z.number().int().positive(),
+
+  alasan: z.string(),
+
+  created_at: z.string().nullable(),
+});
+
+/* =========================
+   VALIDASI INPUT
+========================= */
+
+export function validateJurnalKoreksi(input: unknown): JurnalKoreksiInput {
+  const result = jurnalKoreksiSchema.safeParse(input);
+
+  if (!result.success) {
+    throw new Error(
+      result.error.issues.map((issue) => issue.message).join(", "),
+    );
+  }
+
+  validateKoreksiLines(result.data.lines);
+
+  return result.data;
+}

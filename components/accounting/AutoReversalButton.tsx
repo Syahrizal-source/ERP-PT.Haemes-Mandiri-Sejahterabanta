@@ -2,6 +2,7 @@
 
 import Swal from "sweetalert2";
 import { RefreshCw } from "lucide-react";
+import { JSX } from "react";
 
 export default function AutoReversalButton(): JSX.Element {
   async function handleClick(): Promise<void> {
@@ -26,11 +27,7 @@ export default function AutoReversalButton(): JSX.Element {
       return;
     }
 
-    Swal.fire(
-      "Sukses",
-      `Berhasil reversal ${json.total} jurnal`,
-      "success",
-    );
+    Swal.fire("Sukses", `Berhasil reversal ${json.total} jurnal`, "success");
 
     window.location.reload();
   }

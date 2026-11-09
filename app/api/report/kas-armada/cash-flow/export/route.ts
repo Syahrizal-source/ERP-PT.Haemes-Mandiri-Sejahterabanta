@@ -48,10 +48,10 @@ export async function GET(): Promise<NextResponse> {
 Cash Out: ${cashOut}
 Net Cash: ${netCash}`;
 
-  const qrImage = await QRCode.toBuffer(qrText);
+  const qrImage = await QRCode.toDataURL(qrText);
 
   const imageId = workbook.addImage({
-    buffer: qrImage,
+    base64: qrImage.replace(/^data:image\/png;base64,/, ""),
     extension: "png",
   });
 
@@ -62,7 +62,7 @@ Net Cash: ${netCash}`;
 
   const buffer = await workbook.xlsx.writeBuffer();
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

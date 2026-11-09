@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Swal from "sweetalert2";
+import { BarChart2 } from "lucide-react";
 
 type AsetRow = {
   id_aset: number;
@@ -32,6 +33,7 @@ export default function AsetPage() {
 
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingDepresiasi, setLoadingDepresiasi] = useState<boolean>(false);
+  const [loadingLaporan, setLoadingLaporan] = useState<boolean>(false);
   const [kategori, setKategori] = useState<string>("ALAT_BERAT");
 
   async function fetchData(): Promise<void> {
@@ -186,6 +188,11 @@ export default function AsetPage() {
     await fetchData();
   }
 
+  function handleLaporan(): void {
+    setLoadingLaporan(true);
+    router.push("/accounting/aset/laporan");
+  }
+
   /* =========================
      STATUS ASET
   ========================= */
@@ -280,6 +287,14 @@ export default function AsetPage() {
             disabled={loadingDepresiasi}
           >
             {loadingDepresiasi ? "Memproses..." : "Proses Depresiasi"}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleLaporan}
+            disabled={loadingLaporan}
+          >
+            {loadingLaporan ? "Membuka Laporan..." : "Laporan Aset"}
           </Button>
         </div>
       </form>

@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
 import { useRouter } from "next/navigation";
+
 import { ArrowLeft, Save } from "lucide-react";
-import Swal from 'sweetalert2';
+
+import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
+
 import { useToast } from "@/components/ui/toast-context";
 
 interface Equipment {
@@ -56,48 +60,89 @@ export default function CreateBreakdownPage() {
   });
 
   useEffect(() => {
-    fetchEquipments();// eslint-disable-next-line react-hooks/exhaustive-deps
-    fetchOperators();// eslint-disable-next-line react-hooks/exhaustive-deps
-    fetchProjects();// eslint-disable-next-line react-hooks/exhaustive-deps
+    void fetchEquipments();
+    void fetchOperators();
+    void fetchProjects();
   }, []);
 
   async function fetchEquipments(): Promise<void> {
-    const res = await fetch("/api/alat-berat/master");
+    try {
+      const res = await fetch("/api/alat-berat/master");
 
-    if (!res.ok) {
+      if (!res.ok) {
+        showToast("Gagal mengambil equipment", "error");
+        return;
+      }
+
+      const data: Equipment[] = await res.json();
+
+      setEquipments(data);
+    } catch {
       showToast("Gagal mengambil equipment", "error");
-      return;
     }
-
-    const data: Equipment[] = await res.json();
-    setEquipments(data);
   }
 
   async function fetchOperators(): Promise<void> {
-    const res = await fetch("/api/alat-berat/operator");
+    try {
+      const res = await fetch("/api/alat-berat/operator");
 
-    if (!res.ok) {
+      if (!res.ok) {
+        showToast("Gagal mengambil operator", "error");
+        return;
+      }
+
+      const data: Operator[] = await res.json();
+
+      setOperators(data);
+    } catch {
       showToast("Gagal mengambil operator", "error");
-      return;
     }
-
-    const data: Operator[] = await res.json();
-    setOperators(data);
   }
 
   async function fetchProjects(): Promise<void> {
-    const res = await fetch("/api/proyek/master");
+    try {
+      const res = await fetch("/api/proyek/master");
 
-    if (!res.ok) {
+      if (!res.ok) {
+        showToast("Gagal mengambil proyek", "error");
+        return;
+      }
+
+      const data: Proyek[] = await res.json();
+
+      /*
+       * Menggunakan seluruh proyek yang dikembalikan
+       * oleh API /api/proyek/master.
+       *
+       * Tidak menggunakan filter:
+       * status === "running"
+       *
+       * Tujuannya agar dropdown Breakdown mengikuti
+       * daftar proyek yang sama dengan halaman Master Proyek.
+       */
+
+      const projectList: Proyek[] = data
+        .filter(
+          (project) =>
+            typeof project.id === "string" &&
+            project.id.length > 0 &&
+            typeof project.kode_proyek === "string" &&
+            typeof project.nama_proyek === "string",
+        )
+        .sort((a, b) => {
+          const kodeA: string = a.kode_proyek.trim();
+          const kodeB: string = b.kode_proyek.trim();
+
+          return kodeA.localeCompare(kodeB, "id", {
+            numeric: true,
+            sensitivity: "base",
+          });
+        });
+
+      setProjects(projectList);
+    } catch {
       showToast("Gagal mengambil proyek", "error");
-      return;
     }
-
-    const data: Proyek[] = await res.json();
-
-    const running = data.filter((p) => p.status === "running");
-
-    setProjects(running);
   }
 
   function calculateDurasi(): number {
@@ -108,49 +153,107 @@ export default function CreateBreakdownPage() {
     const start = new Date(form.tanggal_mulai);
     const end = new Date(form.tanggal_selesai);
 
-    const diff = end.getTime() - start.getTime();
-
-    const hours = diff / (1000 * 60 * 60);
+    const diff: number = end.getTime() - start.getTime();
+    const hours: number = diff / (1000 * 60 * 60);
 
     return hours > 0 ? Number(hours.toFixed(2)) : 0;
   }
 
-  const durasiJam = calculateDurasi();
+  const durasiJam: number = calculateDurasi();
 
   async function handleSubmit(): Promise<void> {
-    const res = await fetch("/api/alat-berat/breakdown", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...form,
-        durasi_jam: durasiJam,
-      }),
-    });
-
-    if (!res.ok) {
+    if (!form.equipment_id) {
       Swal.fire({
-        icon: "error",
-        title: "Oops...",
-        text: "Gagal menyimpan breakdown",
+        icon: "warning",
+        title: "Equipment belum dipilih",
+        text: "Silakan pilih equipment terlebih dahulu.",
       });
+
       return;
     }
 
-    const result = await res.json();
+    if (!form.tanggal_mulai) {
+      Swal.fire({
+        icon: "warning",
+        title: "Tanggal mulai belum diisi",
+        text: "Silakan isi tanggal mulai breakdown.",
+      });
 
-    Swal.fire({
-      position: "center",
-      icon: "success",
-      title: "Breakdown Berhasil Masuk",
-      text: result.message,
-      showConfirmButton: false,
-      timer: 1500,
-    }).then(() => {
+      return;
+    }
+
+    if (!form.tanggal_selesai) {
+      Swal.fire({
+        icon: "warning",
+        title: "Tanggal selesai belum diisi",
+        text: "Silakan isi tanggal selesai breakdown.",
+      });
+
+      return;
+    }
+
+    if (durasiJam <= 0) {
+      Swal.fire({
+        icon: "warning",
+        title: "Durasi tidak valid",
+        text: "Tanggal selesai harus lebih besar dari tanggal mulai.",
+      });
+
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/alat-berat/breakdown", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...form,
+          durasi_jam: durasiJam,
+        }),
+      });
+
+      if (!res.ok) {
+        const result: unknown = await res.json().catch(() => null);
+
+        const message: string =
+          typeof result === "object" &&
+          result !== null &&
+          "message" in result &&
+          typeof result.message === "string"
+            ? result.message
+            : "Gagal menyimpan breakdown";
+
+        await Swal.fire({
+          icon: "error",
+          title: "Oops...",
+          text: message,
+        });
+
+        return;
+      }
+
+      const result: { message?: string } = await res.json();
+
+      await Swal.fire({
+        position: "center",
+        icon: "success",
+        title: "Breakdown Berhasil Masuk",
+        text: result.message ?? "Breakdown berhasil disimpan.",
+        showConfirmButton: false,
+        timer: 1500,
+      });
+
       router.push("/alat-berat/breakdown");
       router.refresh();
-    });
+    } catch {
+      await Swal.fire({
+        icon: "error",
+        title: "Oops...",
+        text: "Terjadi kesalahan saat menyimpan breakdown.",
+      });
+    }
   }
 
   return (
@@ -165,7 +268,10 @@ export default function CreateBreakdownPage() {
               className="w-full border rounded p-2"
               value={form.equipment_id}
               onChange={(e) =>
-                setForm({ ...form, equipment_id: e.target.value })
+                setForm({
+                  ...form,
+                  equipment_id: e.target.value,
+                })
               }
             >
               <option value="">-- Pilih Equipment --</option>
@@ -186,7 +292,10 @@ export default function CreateBreakdownPage() {
               className="w-full border rounded p-2"
               value={form.id_operator ?? ""}
               onChange={(e) =>
-                setForm({ ...form, id_operator: e.target.value })
+                setForm({
+                  ...form,
+                  id_operator: e.target.value || null,
+                })
               }
             >
               <option value="">-- Pilih Operator --</option>
@@ -205,7 +314,10 @@ export default function CreateBreakdownPage() {
             type="datetime-local"
             value={form.tanggal_mulai}
             onChange={(e) =>
-              setForm({ ...form, tanggal_mulai: e.target.value })
+              setForm({
+                ...form,
+                tanggal_mulai: e.target.value,
+              })
             }
           />
 
@@ -215,7 +327,10 @@ export default function CreateBreakdownPage() {
             type="datetime-local"
             value={form.tanggal_selesai}
             onChange={(e) =>
-              setForm({ ...form, tanggal_selesai: e.target.value })
+              setForm({
+                ...form,
+                tanggal_selesai: e.target.value,
+              })
             }
           />
 
@@ -226,16 +341,28 @@ export default function CreateBreakdownPage() {
             <select
               className="w-full border rounded p-2"
               value={form.id_proyek ?? ""}
-              onChange={(e) => setForm({ ...form, id_proyek: e.target.value })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  id_proyek: e.target.value || null,
+                })
+              }
             >
               <option value="">-- Tanpa Proyek --</option>
 
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.kode_proyek} - {p.nama_proyek}
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.kode_proyek} - {project.nama_proyek}
+                  {project.status ? ` (${project.status})` : ""}
                 </option>
               ))}
             </select>
+
+            {projects.length === 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                Tidak ada data proyek.
+              </p>
+            )}
           </div>
 
           {/* DURASI */}
@@ -258,7 +385,12 @@ export default function CreateBreakdownPage() {
             className="w-full border rounded p-2"
             rows={3}
             value={form.penyebab}
-            onChange={(e) => setForm({ ...form, penyebab: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                penyebab: e.target.value,
+              })
+            }
           />
         </div>
 
@@ -270,7 +402,12 @@ export default function CreateBreakdownPage() {
             className="w-full border rounded p-2"
             rows={3}
             value={form.tindakan}
-            onChange={(e) => setForm({ ...form, tindakan: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                tindakan: e.target.value,
+              })
+            }
           />
         </div>
 

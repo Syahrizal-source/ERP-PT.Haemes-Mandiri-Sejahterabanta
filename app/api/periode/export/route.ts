@@ -29,9 +29,10 @@ interface PeriodeExcelRow {
 export async function GET() {
   try {
     const { data, error } = await supabase
-      .from<PeriodeExcelRow>("periode")
+      .from("periode")
       .select("id_periode, nama_periode, status, created_at")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .returns<PeriodeExcelRow[]>();
 
     if (error || !data) {
       throw error;
@@ -75,7 +76,7 @@ export async function GET() {
     // ===== RESPONSE =====
     const buffer: Buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type":

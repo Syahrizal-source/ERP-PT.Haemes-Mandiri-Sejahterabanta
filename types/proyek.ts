@@ -12,6 +12,7 @@ export type MetodePembayaran =
 export type MetodePembayaranMaterial = MetodePembayaran;
 export type MetodePembayaranRealisasi = MetodePembayaran;
 export type MetodePembayaranTenagaKerja = MetodePembayaran;
+export type MetodePembayaranHutang = MetodePembayaran;
 
 export type JenisProyek =
   | "PENGURUGAN"
@@ -134,24 +135,42 @@ export type StatusProgress =
   | "SELESAI"
   | "TERLAMBAT"
   | "DIBATALKAN";
-
-export type ProyekProgress = {
-  id: UUID;
+export type SatuanProgress = "m3" | "m2" | "km" | "ton" | "unit" | "ha";
+export type ProyekProgressRequest = {
   id_proyek: UUID;
-  no_bukti: string;
   tanggal: string;
+  no_bukti: string;
   target_volume: number;
   realisasi_volume: number;
-  satuan: "m3" | "m2" | "km" | "ton" | "unit" | "ha";
+  satuan: SatuanProgress;
   nilai_progress: number;
   metode_pembayaran: MetodePembayaran;
   status: StatusProgress;
   periode?: string | null;
   lokasi?: string | null;
   pic?: string | null;
+  keterangan?: string | null;
+  created_by?: UUID | null;
+};
+export type ProyekProgress = {
+  id: UUID;
+  id_proyek: UUID;
+  tanggal: string;
+  no_bukti: string;
+  target_volume: number;
+  realisasi_volume: number;
+  deviasi: number;
+  progress_persen: number;
+  satuan: SatuanProgress;
+  nilai_progress: number;
+  metode_pembayaran: MetodePembayaran;
+  status: StatusProgress;
+  periode?: string | null;
+  lokasi?: string | null;
+  pic?: string | null;
+  keterangan?: string | null;
   id_jurnal?: number | null;
   created_by?: UUID | null;
-  keterangan?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -277,14 +296,43 @@ export type ProyekPenerimaan = {
   bank?: string | null;
 };
 
+export type StatusHutangProyek =
+  | "Unpaid (Menunggu Pembayaran)"
+  | "Partial (Pembayaran Sebagian)"
+  | "Paid (Pembayaran Penuh/ Lunas)";
 export type ProyekHutang = {
   id: UUID;
   id_proyek: UUID;
-  supplier?: string;
-  tanggal?: string;
+  supplier?: string | null;
+  tanggal?: string | null;
   nilai: number;
-  jatuh_tempo?: string;
-  status?: string;
+  jatuh_tempo?: string | null;
+  status: StatusHutangProyek;
+  no_bukti?: string | null;
+  periode?: string | null;
+  id_jurnal?: number | null;
+  sumber?: string | null;
+  id_referensi?: UUID | null;
+  jumlah_pembayaran: number;
+  sisa: number;
+  tanggal_pembayaran?: string | null;
+  keterangan?: string | null;
+};
+
+export type ProyekPembayaranHutang = {
+  id: UUID;
+  id_hutang: UUID;
+  tanggal: string;
+  jumlah: number;
+  metode: MetodePembayaranHutang;
+  bank?: string | null;
+  no_bukti?: string | null;
+  periode?: string | null;
+  id_jurnal?: number | null;
+  keterangan?: string | null;
+  created_by?: UUID | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type ProyekPiutang = {
@@ -342,6 +390,7 @@ export type ProyekMaterial = {
 };
 
 export type StatusOperasional = "DRAFT" | "POSTED" | "DIBATALKAN";
+
 export type ProyekOperasional = {
   id: UUID;
   id_proyek: UUID;
@@ -357,9 +406,9 @@ export type ProyekOperasional = {
   metode_pembayaran: MetodePembayaran;
   periode?: string | null;
   status: StatusOperasional;
+  keterangan?: string | null;
   id_jurnal?: number | null;
   created_by?: UUID | null;
-  keterangan?: string | null;
   created_at?: string;
   updated_at?: string;
 };

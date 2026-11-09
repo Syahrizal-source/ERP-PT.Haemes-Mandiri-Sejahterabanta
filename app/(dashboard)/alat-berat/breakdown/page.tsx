@@ -49,10 +49,11 @@ export default function BreakdownPage() {
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
       text: "Apakah Anda yakin menghapus Breakdown ini?",

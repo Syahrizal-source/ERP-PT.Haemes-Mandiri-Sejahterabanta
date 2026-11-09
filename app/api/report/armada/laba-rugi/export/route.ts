@@ -98,7 +98,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   const buffer = await buildLabaRugiExcelWithQR(pendapatan, beban);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

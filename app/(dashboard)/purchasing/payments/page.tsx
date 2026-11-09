@@ -7,7 +7,6 @@ import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import ConfirmModal from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast-context";
 
 interface Payment {
@@ -44,10 +43,11 @@ export default function PaymentListPage() {
   }
 
   useEffect(() => {
-    fetchData(); // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
       text: "Apakah Anda yakin menghapus Payments ini?",

@@ -1,63 +1,93 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { db } from "@/lib/supabase/server";
-import QRCode from "qrcode";
 import { CellHyperlinkValue } from "exceljs";
+import QRCode from "qrcode";
+import { db } from "@/lib/supabase/server";
 import { generateQRCodeValue } from "@/lib/helpers/qrcode";
-import { getJournalDivision } from "@/lib/accounting/journalDivision";
 
-/* =========================
+/* ============================================================
    TYPES
-========================= */
+   ============================================================ */
+
+interface GeneralLedgerRow {
+  id_jurnal: number;
+  tanggal: string;
+  no_bukti: string;
+  keterangan: string | null;
+  sumber: string | null;
+  id_coa: number;
+  kode_coa: string;
+  nama_coa: string;
+  debit: number | string | null;
+  kredit: number | string | null;
+  id_periode: number;
+  nama_periode: string;
+  status_periode: string;
+}
+
+interface CoaMasterRow {
+  kode: string;
+  nama: string;
+  aktif: boolean;
+  urutan: number | null;
+}
+
 interface BukuBesarRow {
+  id_jurnal: number;
   tanggal: string;
   no_bukti: string;
   keterangan: string;
+  sumber: string;
   kode_coa: string;
   nama_coa: string;
   debit: number;
   kredit: number;
-  business_unit: string | null;
-  region_name: string | null;
-  estate_name: string | null;
-  division_name: string | null;
-  block_code: string | null;
 }
+
 interface GroupedCoa {
   kode: string;
   nama: string;
+  urutan: number;
   rows: BukuBesarRow[];
 }
 
-interface DivisionGroup {
-  division: string;
-  accounts: GroupedCoa[];
-}
-
-/* =========================
+/* ============================================================
    CONSTANT
-========================= */
+   ============================================================ */
 
 const ACCOUNTING_FORMAT = '"Rp" #,##0;[Red]("Rp" #,##0)';
 
-/* =========================
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+function toNumber(value: number | string | null): number {
+  if (value === null) {
+    return 0;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toText(value: string | null): string {
+  return value ?? "";
+}
+
+/* ============================================================
    STYLES
-========================= */
+   ============================================================ */
 
 function border(cell: ExcelJS.Cell): void {
   cell.border = {
-    top: {
-      style: "thin",
-    },
-    left: {
-      style: "thin",
-    },
-    bottom: {
-      style: "thin",
-    },
-    right: {
-      style: "thin",
-    },
+    top: { style: "thin" },
+    left: { style: "thin" },
+    bottom: { style: "thin" },
+    right: { style: "thin" },
   };
 }
 
@@ -68,17 +98,13 @@ function currency(cell: ExcelJS.Cell): void {
 function headerStyle(cell: ExcelJS.Cell): void {
   cell.font = {
     bold: true,
-    color: {
-      argb: "FFFFFFFF",
-    },
+    color: { argb: "FFFFFFFF" },
   };
 
   cell.fill = {
     type: "pattern",
     pattern: "solid",
-    fgColor: {
-      argb: "1F4E78",
-    },
+    fgColor: { argb: "1F4E78" },
   };
 
   cell.alignment = {
@@ -97,217 +123,188 @@ function totalStyle(cell: ExcelJS.Cell): void {
   cell.fill = {
     type: "pattern",
     pattern: "solid",
-    fgColor: {
-      argb: "D9D9D9",
-    },
+    fgColor: { argb: "D9D9D9" },
   };
 
   border(cell);
 }
 
-/* =========================
-   TITLE
-========================= */
-
-function createTitle(
-  sheet: ExcelJS.Worksheet,
-  companyTitle: string,
-  divisionTitle: string,
-  section: string,
-  accountTitle: string,
-  periode: string,
-  printDate: string,
-  region: string | null,
-  estate: string | null,
-  divisionName: string | null,
-  blockCode: string | null,
-): void {
-  sheet.mergeCells("A1:F1");
-
-  sheet.getCell("A1").value = "BUKU BESAR UMUM";
-
-  sheet.getCell("A1").font = {
-    bold: true,
-    size: 18,
-  };
-
-  sheet.getCell("A1").alignment = {
-    horizontal: "center",
-  };
-
-  sheet.mergeCells("A2:F2");
-
-  sheet.getCell("A2").value = "PT. Haemes Mandiri Sejahterabanta";
-
-  sheet.getCell("A2").font = {
+function sectionStyle(cell: ExcelJS.Cell): void {
+  cell.font = {
     bold: true,
     size: 12,
   };
 
+  cell.alignment = {
+    horizontal: "left",
+    vertical: "middle",
+  };
+}
+
+/* ============================================================
+   TITLE
+   ============================================================ */
+
+function createTitle(
+  sheet: ExcelJS.Worksheet,
+  periode: string,
+  printDate: string,
+): void {
+  sheet.mergeCells("A1:F1");
+  sheet.getCell("A1").value = "BUKU BESAR UMUM";
+  sheet.getCell("A1").font = {
+    bold: true,
+    size: 18,
+  };
+  sheet.getCell("A1").alignment = {
+    horizontal: "center",
+    vertical: "middle",
+  };
+
+  sheet.mergeCells("A2:F2");
+  sheet.getCell("A2").value = "PT. Haemes Mandiri Sejahterabanta";
+  sheet.getCell("A2").font = {
+    bold: true,
+    size: 12,
+  };
   sheet.getCell("A2").alignment = {
     horizontal: "center",
+    vertical: "middle",
   };
 
   sheet.mergeCells("A4:F4");
-
-  sheet.getCell("A4").value = companyTitle;
-
+  sheet.getCell("A4").value = "BUKU BESAR";
   sheet.getCell("A4").font = {
     bold: true,
     size: 14,
   };
-
   sheet.getCell("A4").alignment = {
     horizontal: "center",
+    vertical: "middle",
   };
 
   sheet.mergeCells("A5:F5");
-
-  sheet.getCell("A5").value = divisionTitle;
-
+  sheet.getCell("A5").value = `Periode : ${periode}`;
   sheet.getCell("A5").font = {
     bold: true,
-    size: 12,
   };
-
   sheet.getCell("A5").alignment = {
     horizontal: "left",
+    vertical: "middle",
   };
 
   sheet.mergeCells("A6:F6");
-
-  sheet.getCell("A6").value = section;
-
-  sheet.getCell("A6").font = {
-    bold: true,
-  };
-
+  sheet.getCell("A6").value = `Tanggal Cetak : ${printDate}`;
   sheet.getCell("A6").alignment = {
     horizontal: "left",
-  };
-
-  if (region) {
-    sheet.mergeCells("A7:F7");
-    sheet.getCell("A7").value = `Wilayah : ${region}`;
-  }
-
-  if (estate) {
-    sheet.mergeCells("A8:F8");
-    sheet.getCell("A8").value = `Estate : ${estate}`;
-  }
-
-  if (divisionName) {
-    sheet.mergeCells("A9:F9");
-    sheet.getCell("A9").value = `Divisi : ${divisionName}`;
-  }
-
-  if (blockCode) {
-    sheet.mergeCells("A10:F10");
-    sheet.getCell("A10").value = `Block : ${blockCode}`;
-  }
-
-  sheet.mergeCells("A11:F11");
-
-  sheet.getCell("A11").value = accountTitle;
-
-  sheet.mergeCells("A12:F12");
-
-  sheet.getCell("A12").value = `Periode : ${periode}`;
-
-  sheet.mergeCells("A13:F13");
-
-  sheet.getCell("A13").value = `Tanggal Cetak : ${printDate}`;
-
-  sheet.getCell("A12").font = {
-    bold: true,
-  };
-
-  sheet.getCell("A12").alignment = {
-    horizontal: "left",
-  };
-
-  sheet.getCell("A8").font = {
-    bold: true,
-  };
-
-  sheet.getCell("A8").alignment = {
-    horizontal: "left",
-  };
-
-  sheet.getCell("A7").font = {
-    bold: true,
-  };
-
-  sheet.getCell("A7").alignment = {
-    horizontal: "left",
+    vertical: "middle",
   };
 }
 
-/* =========================
-   SANITIZE SHEET
-========================= */
-function createIndexTitle(sheet: ExcelJS.Worksheet): void {
-  sheet.mergeCells("A1:B1");
-
-  sheet.getCell("A1").value = "DAFTAR BUKU BESAR";
-
-  sheet.getCell("A1").font = {
-    bold: true,
-    size: 18,
-  };
-
-  sheet.getCell("A1").alignment = {
-    horizontal: "center",
-  };
-
-  sheet.mergeCells("A2:B2");
-
-  sheet.getCell("A2").value = "PT. Haemes Mandiri Sejahterabanta";
-
-  sheet.getCell("A2").font = {
-    bold: true,
-    size: 12,
-  };
-
-  sheet.getCell("A2").alignment = {
-    horizontal: "center",
-  };
-}
+/* ============================================================
+   SHEET NAME
+   ============================================================ */
 
 function sanitizeSheetName(name: string): string {
-  return name.replace(/[*?:/\\[\]]/g, "").substring(0, 31);
+  const sanitized = name.replace(/[*?:/\\[\]]/g, "").trim();
+
+  if (sanitized.length === 0) {
+    return "BUKU BESAR";
+  }
+
+  return sanitized.substring(0, 31);
 }
 
-/* =========================
+/* ============================================================
+   SIGNATURE
+   ============================================================ */
+
+function createSignature(sheet: ExcelJS.Worksheet, startRow: number): void {
+  const titleRow = startRow;
+  const nameRow = startRow + 4;
+
+  sheet.mergeCells(`A${titleRow}:B${titleRow}`);
+  sheet.mergeCells(`C${titleRow}:D${titleRow}`);
+  sheet.mergeCells(`E${titleRow}:F${titleRow}`);
+
+  sheet.getCell(`A${titleRow}`).value = "Dibuat Oleh";
+  sheet.getCell(`C${titleRow}`).value = "Diperiksa Oleh";
+  sheet.getCell(`E${titleRow}`).value = "Disetujui Oleh";
+
+  for (const cellAddress of [`A${titleRow}`, `C${titleRow}`, `E${titleRow}`]) {
+    const cell = sheet.getCell(cellAddress);
+    cell.font = { bold: true };
+    cell.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+  }
+
+  sheet.mergeCells(`A${nameRow}:B${nameRow}`);
+  sheet.mergeCells(`C${nameRow}:D${nameRow}`);
+  sheet.mergeCells(`E${nameRow}:F${nameRow}`);
+
+  sheet.getCell(`A${nameRow}`).value = "(____________________)";
+  sheet.getCell(`C${nameRow}`).value = "(____________________)";
+  sheet.getCell(`E${nameRow}`).value = "(____________________)";
+
+  for (const cellAddress of [`A${nameRow}`, `C${nameRow}`, `E${nameRow}`]) {
+    const cell = sheet.getCell(cellAddress);
+    cell.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+  }
+}
+
+/* ============================================================
    GET
-========================= */
+   ============================================================ */
 
-export async function GET() {
+export async function GET(): Promise<Response> {
   try {
-    /* =========================
-   LOAD GENERAL LEDGER
-========================= */
+    /* ========================================================
+       LOAD GENERAL LEDGER
 
-    const { data: ledgerData, error: ledgerError } = await db
-      .from("v_general_ledger_report")
+       public.v_general_ledger sudah menggunakan:
+       - jurnal posted
+       - periode OPEN
+       - exclude CLS
+       - exclude CLOSE
+       - exclude OPEN
+       - exclude REV
+
+       Tidak menggunakan:
+       - wilayah
+       - estate
+       - division
+       - block
+    ======================================================== */
+
+    const { data: ledgerDataRaw, error: ledgerError } = await db
+      .from("v_general_ledger")
       .select(
         `
-tanggal,
-no_bukti,
-keterangan,
-kode_coa,
-nama_coa,
-debit,
-kredit,
-business_unit,
-region_name,
-estate_name,
-division_name,
-block_code
-`,
+          id_jurnal,
+          tanggal,
+          no_bukti,
+          keterangan,
+          sumber,
+          id_coa,
+          kode_coa,
+          nama_coa,
+          debit,
+          kredit,
+          id_periode,
+          nama_periode,
+          status_periode
+        `,
       )
-      .not("no_bukti", "like", "CLS-SUSPENSE-%")
+      .eq("status_periode", "OPEN")
       .order("tanggal", {
+        ascending: true,
+      })
+      .order("id_jurnal", {
         ascending: true,
       });
 
@@ -315,18 +312,46 @@ block_code
       throw ledgerError;
     }
 
-    /* =========================
-   LOAD MASTER COA
-========================= */
+    const ledgerData = (ledgerDataRaw ?? []) as GeneralLedgerRow[];
 
-    const { data: coaData, error: coaError } = await db
+    /* ========================================================
+       VALIDASI PERIODE
+    ======================================================== */
+
+    const openPeriods = new Set(
+      ledgerData
+        .filter((row) => row.status_periode === "OPEN")
+        .map((row) => row.id_periode),
+    );
+
+    if (openPeriods.size > 1) {
+      throw new Error(
+        "Terdapat lebih dari satu periode OPEN. Buku Besar membutuhkan satu periode OPEN aktif.",
+      );
+    }
+
+    /* ========================================================
+       LOAD MASTER COA
+
+       Urutan menggunakan field urutan database yang sudah
+       diperbaiki sebelumnya.
+    ======================================================== */
+
+    const { data: coaDataRaw, error: coaError } = await db
       .from("coa")
       .select(
         `
-    kode,
-    nama
-  `,
+          kode,
+          nama,
+          aktif,
+          urutan
+        `,
       )
+      .eq("aktif", true)
+      .order("urutan", {
+        ascending: true,
+        nullsFirst: false,
+      })
       .order("kode", {
         ascending: true,
       });
@@ -335,104 +360,132 @@ block_code
       throw coaError;
     }
 
-    const rows: BukuBesarRow[] = (ledgerData ?? []).map(
+    const coaData = (coaDataRaw ?? []) as CoaMasterRow[];
+
+    /* ========================================================
+       MAP GENERAL LEDGER ROW
+    ======================================================== */
+
+    const rows: BukuBesarRow[] = ledgerData.map(
       (item): BukuBesarRow => ({
+        id_jurnal: Number(item.id_jurnal),
         tanggal: String(item.tanggal),
         no_bukti: String(item.no_bukti),
-        keterangan: String(item.keterangan ?? ""),
+        keterangan: toText(item.keterangan),
+        sumber: toText(item.sumber),
         kode_coa: String(item.kode_coa),
         nama_coa: String(item.nama_coa),
-        debit: Number(item.debit ?? 0),
-        kredit: Number(item.kredit ?? 0),
-        business_unit: item.business_unit ? String(item.business_unit) : null,
-        region_name: item.region_name ? String(item.region_name) : null,
-        estate_name: item.estate_name ? String(item.estate_name) : null,
-        division_name: item.division_name ? String(item.division_name) : null,
-        block_code: item.block_code ? String(item.block_code) : null,
+        debit: toNumber(item.debit),
+        kredit: toNumber(item.kredit),
       }),
     );
 
-    /* =========================
-       REMOVE DUPLICATE
-    ========================= */
+    /* ========================================================
+       SORT TRANSACTION
 
-    const unique = new Map<string, BukuBesarRow>();
+       Tidak melakukan deduplikasi.
+       Setiap jurnal_detail tetap dipertahankan.
+    ======================================================== */
 
-    for (const row of rows) {
-      const key = [
-        row.tanggal,
-        row.no_bukti,
-        row.kode_coa,
-        row.debit,
-        row.kredit,
-      ].join("-");
+    rows.sort((a, b) => {
+      const dateDifference =
+        new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
 
-      if (!unique.has(key)) {
-        unique.set(key, row);
+      if (dateDifference !== 0) {
+        return dateDifference;
       }
-    }
 
-    const cleanRows = Array.from(unique.values());
-    /* =========================
-       SORT
-    ========================= */
-    cleanRows.sort((a, b) => {
-      return new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
+      if (a.id_jurnal !== b.id_jurnal) {
+        return a.id_jurnal - b.id_jurnal;
+      }
+
+      return a.kode_coa.localeCompare(b.kode_coa);
     });
 
-    /* =========================
+    /* ========================================================
        GROUP COA
-    ========================= */
-
-    /* =========================
-   GROUP ALL COA
-========================= */
+    ======================================================== */
 
     const grouped = new Map<string, GroupedCoa>();
 
-    /* =========================
-   CREATE ALL COA
-========================= */
+    for (const coa of coaData) {
+      const kode = coa.kode.trim();
 
-    for (const coa of coaData ?? []) {
-      const key = coa.kode.trim();
-
-      grouped.set(key, {
+      grouped.set(kode, {
         kode: coa.kode,
-
         nama: coa.nama,
-
+        urutan: coa.urutan ?? Number.MAX_SAFE_INTEGER,
         rows: [],
       });
     }
 
-    /* =========================
-   INSERT TRANSACTION
-========================= */
+    /* ========================================================
+       INSERT TRANSACTION KE COA AKTIF
 
-    for (const row of cleanRows) {
+       Transaksi yang masih menggunakan COA nonaktif tidak
+       dimasukkan ke workbook aktif.
+    ======================================================== */
+
+    for (const row of rows) {
       const key = row.kode_coa.trim();
-      grouped.get(key)?.rows.push(row);
+      const account = grouped.get(key);
+
+      if (!account) {
+        continue;
+      }
+
+      account.rows.push(row);
     }
 
-    const divisionGroups = new Map<string, DivisionGroup>();
-    for (const coaGroup of grouped.values()) {
-      const division = getJournalDivision(coaGroup.kode);
-      const existing = divisionGroups.get(division);
-      if (existing) {
-        existing.accounts.push(coaGroup);
-      } else {
-        divisionGroups.set(division, {
-          division,
-          accounts: [coaGroup],
-        });
+    /* ========================================================
+       SORT COA BERDASARKAN URUTAN DATABASE
+    ======================================================== */
+
+    const groupedAccounts = Array.from(grouped.values()).sort((a, b) => {
+      if (a.urutan !== b.urutan) {
+        return a.urutan - b.urutan;
       }
-    }
-    const { data: periode } = await db
+
+      return a.kode.localeCompare(b.kode);
+    });
+
+    /* ========================================================
+       LOAD ACTIVE PERIOD
+    ======================================================== */
+
+    const { data: periodeDataRaw, error: periodeError } = await db
       .from("periode")
-      .select("nama_periode")
+      .select(
+        `
+          id_periode,
+          nama_periode,
+          status
+        `,
+      )
       .eq("status", "OPEN")
-      .single();
+      .order("id_periode", {
+        ascending: false,
+      })
+      .limit(1)
+      .maybeSingle();
+
+    if (periodeError) {
+      throw periodeError;
+    }
+
+    const periodeData = periodeDataRaw as {
+      id_periode: number;
+      nama_periode: string;
+      status: string;
+    } | null;
+
+    if (periodeData?.status !== "OPEN") {
+      throw new Error("Tidak ditemukan periode OPEN aktif.");
+    }
+
+    const periode =
+      periodeData.nama_periode ||
+      (ledgerData.length > 0 ? ledgerData[0].nama_periode : "PERIODE OPEN");
 
     const printDate = new Date().toLocaleDateString("id-ID", {
       day: "2-digit",
@@ -440,349 +493,211 @@ block_code
       year: "numeric",
     });
 
-    /* =========================
+    /* ========================================================
        WORKBOOK
-    ========================= */
+    ======================================================== */
 
     const workbook = new ExcelJS.Workbook();
 
-    /* =========================
-   INDEX SHEET
-========================= */
+    workbook.creator = "Haemes System App";
+    workbook.created = new Date();
 
-    const indexSheet = workbook.addWorksheet("INDEX");
+    /* ========================================================
+       SINGLE GENERAL LEDGER SHEET
 
-    createIndexTitle(indexSheet);
+       Tidak ada division sheet.
+       Tidak ada wilayah / estate / division / block.
+    ======================================================== */
 
-    indexSheet.columns = [{ width: 6 }, { width: 40 }];
+    const sheetName = sanitizeSheetName("BUKU BESAR");
+    const sheet = workbook.addWorksheet(sheetName);
 
-    headerStyle(indexSheet.getCell("A4"));
+    createTitle(sheet, periode, printDate);
 
-    headerStyle(indexSheet.getCell("B4"));
+    sheet.columns = [
+      { width: 15 },
+      { width: 35 },
+      { width: 60 },
+      { width: 18 },
+      { width: 18 },
+      { width: 22 },
+    ];
 
-    indexSheet.getCell("A6").value = "No";
+    /* ========================================================
+       DATA START
+    ======================================================== */
 
-    indexSheet.getCell("B6").value = "Nama Sheet";
+    let rowNumber = 9;
 
-    let indexRow = 5;
-    let sheetCounter = 1;
+    /* ========================================================
+       ACCOUNT DATA
+    ======================================================== */
 
-    for (const [, divisionGroup] of divisionGroups) {
-      const totalCoa = divisionGroup.accounts.length;
+    for (const coaGroup of groupedAccounts) {
+      if (coaGroup.rows.length === 0) {
+        continue;
+      }
 
-      const activeCoa = divisionGroup.accounts.filter(
-        (account) => account.rows.length > 0,
-      ).length;
+      /* ====================================================
+         ACCOUNT HEADER
+      ==================================================== */
 
-      const totalTransaksi = divisionGroup.accounts.reduce(
-        (total, account) => total + account.rows.length,
-        0,
-      );
+      sheet.mergeCells(`A${rowNumber}:F${rowNumber}`);
 
-      const sheetLabel =
-        divisionGroup.division === "KEBUN SAWIT"
-          ? `KEBUN SAWIT ✓ (${activeCoa}/${totalCoa} COA • ${totalTransaksi} Transaksi)`
-          : divisionGroup.division;
+      sheet.getCell(`A${rowNumber}`).value =
+        `${coaGroup.kode} - ${coaGroup.nama}`;
 
-      const reportTitle =
-        divisionGroup.division === "KEBUN SAWIT"
-          ? "JASA PERKEBUNAN SAWIT"
-          : "JASA CUT & FILL DAN PENGURUGAN TANAH";
-
-      indexSheet.getCell(`A${indexRow}`).font = {
+      sheet.getCell(`A${rowNumber}`).font = {
         bold: true,
-        size: 13,
+        size: 12,
       };
-      const sheet = workbook.addWorksheet(
-        sanitizeSheetName(divisionGroup.division),
-      );
 
-      indexSheet.getCell(`A${indexRow}`).value = sheetCounter;
-
-      border(indexSheet.getCell(`A${indexRow}`));
-
-      indexSheet.getCell(`A${indexRow}`).alignment = {
-        horizontal: "center",
+      sheet.getCell(`A${rowNumber}`).alignment = {
+        horizontal: "left",
         vertical: "middle",
       };
 
-      const indexLink = indexSheet.getCell(`B${indexRow}`);
+      rowNumber++;
 
-      const kebunRows: BukuBesarRow[] = divisionGroup.accounts.flatMap(
-        (account): BukuBesarRow[] => account.rows,
-      );
+      /* ====================================================
+         TABLE HEADER
 
-      const kebunInfo = kebunRows.find(
-        (row) => row.business_unit === "KEBUN SAWIT",
-      );
+         Format final:
+         Tanggal | Voucher | Keterangan | Debit | Kredit | Saldo
+      ==================================================== */
 
-      const region = kebunInfo?.region_name ?? null;
-      const estate = kebunInfo?.estate_name ?? null;
-      const division = kebunInfo?.division_name ?? null;
-      const block = kebunInfo?.block_code ?? null;
+      const headerRow = sheet.getRow(rowNumber);
 
-      border(indexLink);
-
-      indexLink.alignment = {
-        vertical: "middle",
-      };
-
-      createTitle(
-        sheet,
-        "PT. Haemes Mandiri Sejahterabanta",
-        divisionGroup.division,
-        reportTitle,
-        "",
-        periode?.nama_periode ?? "",
-        printDate,
-        region,
-        estate,
-        division,
-        block,
-      );
-
-      sheet.columns = [
-        { width: 15 },
-        { width: 35 },
-        { width: 60 },
-        { width: 18 },
-        { width: 18 },
-        { width: 22 },
+      headerRow.values = [
+        "Tanggal",
+        "Voucher",
+        "Keterangan",
+        "Debit",
+        "Kredit",
+        "Saldo",
       ];
 
-      let rowNumber = 15;
+      for (let col = 1; col <= 6; col++) {
+        headerStyle(sheet.getCell(rowNumber, col));
+      }
 
-      const backRow = rowNumber + 2;
+      rowNumber++;
 
-      /* =========================
-     SIGNATURE
-  ========================= */
+      /* ====================================================
+         TRANSACTION
+      ==================================================== */
 
-      const signRow = backRow + 4;
+      let saldo = 0;
 
-      sheet.getCell(`B${signRow}`).value = "Direksi";
+      for (const row of coaGroup.rows) {
+        saldo += row.debit - row.kredit;
 
-      sheet.getCell(`E${signRow}`).value = "Finance Manager";
+        const dateCell = sheet.getCell(`A${rowNumber}`);
+        dateCell.value = new Date(row.tanggal);
+        dateCell.numFmt = "dd/mm/yyyy";
 
-      sheet.getCell(`B${signRow}`).font = {
-        bold: true,
-      };
-
-      sheet.getCell(`E${signRow}`).font = {
-        bold: true,
-      };
-
-      sheet.getCell(`B${signRow + 4}`).value = "(_________________)";
-
-      sheet.getCell(`E${signRow + 4}`).value = "(_________________)";
-
-      for (const coaGroup of divisionGroup.accounts) {
-        if (coaGroup.rows.length === 0) {
-          continue;
-        }
-
-        const sheetName = sanitizeSheetName(divisionGroup.division);
-
-        sheet.mergeCells(`A${rowNumber}:F${rowNumber}`);
-
-        sheet.getCell(`A${rowNumber}`).value =
-          `${coaGroup.kode} - ${coaGroup.nama}`;
-
-        sheet.getCell(`A${rowNumber}`).font = {
-          bold: true,
-          size: 12,
+        const voucherCell = sheet.getCell(`B${rowNumber}`);
+        voucherCell.value = row.no_bukti;
+        voucherCell.font = {
+          color: { argb: "000000" },
         };
 
-        sheet.getCell(`A${rowNumber}`).alignment = {
-          horizontal: "left",
-        };
-
-        rowNumber++;
-
-        const headerRow = sheet.getRow(rowNumber);
-
-        headerRow.values = [
-          "Tanggal",
-          "Voucher",
-          "Keterangan",
-          "Debit",
-          "Kredit",
-          "Saldo",
-        ];
-
-        /* =========================
-           HEADER
-        ========================= */
-
-        for (let col = 1; col <= 6; col++) {
-          headerStyle(sheet.getCell(rowNumber, col));
-        }
-
-        rowNumber++;
-
-        /* =========================
-     INDEX LINK
-  ========================= */
-
-        const hyperlinkValue: CellHyperlinkValue = {
-          text: sheetLabel,
-          hyperlink: `#'${sheetName}'!A1`,
-        };
-        indexLink.value = hyperlinkValue;
-
-        indexLink.font = {
-          color: {
-            argb: "0000FF",
-          },
-
-          underline: true,
-        };
-
-        if (divisionGroup.division === "KEBUN SAWIT") {
-          indexLink.fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: {
-              argb: "E2F0D9",
-            },
-          };
-
-          indexLink.font = {
-            bold: true,
-            color: {
-              argb: "006100",
-            },
-            underline: true,
-          };
-        }
-        indexRow++;
-
-        /* =========================
-           DATA
-        ========================= */
-
-        let saldo = 0;
-
-        for (const row of coaGroup.rows) {
-          saldo += row.debit - row.kredit;
-
-          sheet.getCell(`A${rowNumber}`).value = new Date(row.tanggal);
-
-          sheet.getCell(`A${rowNumber}`).numFmt = "dd/mm/yyyy";
-
-          /* =========================
-             HYPERLINK
-          ========================= */
-
-          sheet.getCell(`B${rowNumber}`).value = row.no_bukti;
-
-          sheet.getCell(`B${rowNumber}`).font = {
-            color: {
-              argb: "000000",
-            },
-          };
-
-          sheet.getCell(`C${rowNumber}`).value = row.keterangan;
-
-          sheet.getCell(`D${rowNumber}`).value = row.debit;
-
-          sheet.getCell(`E${rowNumber}`).value = row.kredit;
-
-          sheet.getCell(`F${rowNumber}`).value = saldo;
-
-          currency(sheet.getCell(`D${rowNumber}`));
-
-          currency(sheet.getCell(`E${rowNumber}`));
-
-          currency(sheet.getCell(`F${rowNumber}`));
-
-          for (let col = 1; col <= 6; col++) {
-            border(sheet.getCell(rowNumber, col));
-          }
-
-          rowNumber++;
-        }
-
-        /* =========================
-     BACK TO INDEX
-  ========================= */
-
-        const backCell = sheet.getCell(`A${backRow}`);
-
-        const backLink: CellHyperlinkValue = {
-          text: "Kembali ke INDEX",
-
-          hyperlink: "#'INDEX'!A1",
-        };
-
-        backCell.value = backLink;
-
-        backCell.font = {
-          color: {
-            argb: "0000FF",
-          },
-
-          underline: true,
-
-          bold: true,
-        };
-
-        /* =========================
-           FOOTER
-        ========================= */
-
-        sheet.mergeCells(`A${rowNumber}:E${rowNumber}`);
-
-        sheet.getCell(`A${rowNumber}`).value = "SALDO AKHIR";
-
+        sheet.getCell(`C${rowNumber}`).value = row.keterangan;
+        sheet.getCell(`D${rowNumber}`).value = row.debit;
+        sheet.getCell(`E${rowNumber}`).value = row.kredit;
         sheet.getCell(`F${rowNumber}`).value = saldo;
 
-        totalStyle(sheet.getCell(`A${rowNumber}`));
-
-        totalStyle(sheet.getCell(`F${rowNumber}`));
-
+        currency(sheet.getCell(`D${rowNumber}`));
+        currency(sheet.getCell(`E${rowNumber}`));
         currency(sheet.getCell(`F${rowNumber}`));
+
+        for (let col = 1; col <= 6; col++) {
+          border(sheet.getCell(rowNumber, col));
+        }
+
         rowNumber++;
       }
-      sheetCounter++;
+
+      /* ====================================================
+         ACCOUNT TOTAL
+      ==================================================== */
+
+      sheet.mergeCells(`A${rowNumber}:E${rowNumber}`);
+      sheet.getCell(`A${rowNumber}`).value = "SALDO AKHIR";
+      sheet.getCell(`F${rowNumber}`).value = saldo;
+
+      totalStyle(sheet.getCell(`A${rowNumber}`));
+      totalStyle(sheet.getCell(`F${rowNumber}`));
+      currency(sheet.getCell(`F${rowNumber}`));
+
+      rowNumber += 2;
     }
-    /* =========================
+
+    /* ========================================================
+       SIGNATURE
+
+       Diletakkan setelah seluruh Buku Besar.
+       Mengikuti layout 6 kolom A:F.
+    ======================================================== */
+
+    const signatureStartRow = rowNumber + 1;
+    createSignature(sheet, signatureStartRow);
+
+    /* ========================================================
+       PAGE SETUP
+    ======================================================== */
+
+    sheet.pageSetup.orientation = "landscape";
+    sheet.pageSetup.fitToPage = true;
+    sheet.pageSetup.fitToWidth = 1;
+    sheet.pageSetup.fitToHeight = 0;
+
+    /*
+     * Jangan menggunakan ExcelJS.PaperSize.A4 karena pada versi
+     * ExcelJS yang digunakan project ini enum tersebut tidak
+     * tersedia. Nilai 9 = A4.
+     */
+    sheet.pageSetup.paperSize = 9;
+
+    sheet.views = [
+      {
+        state: "frozen",
+        ySplit: 8,
+      },
+    ];
+
+    /* ========================================================
        AUTO WIDTH
-    ========================= */
 
-    workbook.eachSheet((worksheet): void => {
-      worksheet.columns.forEach((column): void => {
-        let maxLength = 0;
+       Tetap menjaga 6 kolom final.
+    ======================================================== */
 
-        column.eachCell?.(
-          {
-            includeEmpty: true,
-          },
-          (cell): void => {
-            const value = cell.value?.toString() ?? "";
+    sheet.columns.forEach((column): void => {
+      let maxLength = 0;
 
-            maxLength = Math.max(maxLength, value.length);
-          },
-        );
+      column.eachCell?.(
+        {
+          includeEmpty: true,
+        },
+        (cell): void => {
+          const value = cell.value?.toString() ?? "";
+          maxLength = Math.max(maxLength, value.length);
+        },
+      );
 
-        column.width = Math.min(Math.max(maxLength + 3, 12), 60);
-      });
+      column.width = Math.min(Math.max(maxLength + 3, 12), 60);
     });
 
-    /* =========================
-   QR CODE
-========================= */
+    /* ========================================================
+       QR CODE
+
+       Menggunakan periode OPEN aktif.
+    ======================================================== */
 
     const qrText = generateQRCodeValue({
-      id: cleanRows.length,
-
+      id: periodeData.id_periode,
       sumber_modul: "BUKU_BESAR",
-
-      nilai_transaksi: cleanRows.reduce(
-        (sum, row) => sum + Number(row.debit),
-        0,
-      ),
-
+      nilai_transaksi: rows.reduce((sum, row) => sum + row.debit, 0),
       tanggal_transaksi: new Date().toISOString(),
     });
 
@@ -790,40 +705,31 @@ block_code
 
     const imageId = workbook.addImage({
       base64: qrImage,
-
       extension: "png",
     });
 
-    workbook.eachSheet((sheet): void => {
-      if (sheet.name === "INDEX") {
-        return;
-      }
-
-      sheet.addImage(imageId, {
-        tl: {
-          col: 9,
-          row: 11,
-        },
-
-        ext: {
-          width: 90,
-          height: 90,
-        },
-      });
+    sheet.addImage(imageId, {
+      tl: {
+        col: 7,
+        row: 0,
+      },
+      ext: {
+        width: 90,
+        height: 90,
+      },
     });
-    /* =========================
+
+    /* ========================================================
        EXPORT
-    ========================= */
+    ======================================================== */
 
     const buffer = await workbook.xlsx.writeBuffer();
 
     return new NextResponse(buffer, {
       status: 200,
-
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-
         "Content-Disposition": 'attachment; filename="buku-besar-umum.xlsx"',
       },
     });

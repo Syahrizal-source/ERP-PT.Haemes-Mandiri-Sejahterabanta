@@ -38,16 +38,18 @@ export async function GET() {
   try {
     // ✅ Ambil data jurnal_detail
     const { data: details, error: detailsError } = await supabase
-      .from<JurnalDetailRow>("jurnal_detail")
+      .from("jurnal_detail")
       .select("*")
-      .order("id_jurnal", { ascending: true });
+      .order("id_jurnal", { ascending: true })
+      .returns<JurnalDetailRow[]>();
 
     if (detailsError || !details) throw detailsError;
 
     // ✅ Ambil COA
     const { data: coas, error: coasError } = await supabase
-      .from<CoaRow>("coa")
-      .select("id_coa,kode,nama");
+      .from("coa")
+      .select("id_coa,kode,nama")
+      .returns<CoaRow[]>();
 
     if (coasError || !coas) throw coasError;
 
@@ -99,7 +101,7 @@ export async function GET() {
     // ✅ Export buffer
     const buffer = await workbook.xlsx.writeBuffer();
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type":

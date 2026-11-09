@@ -10,7 +10,7 @@ export type NeracaExportRow = {
 };
 
 export async function buildNeracaExcelWithQR(
-  periode: number,
+  periode: number | null,
   rows: NeracaExportRow[],
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -48,10 +48,10 @@ export async function buildNeracaExcelWithQR(
   };
 
   const hash = generateReportHash(metadata);
-  const qrBuffer = await QRCode.toBuffer(hash);
+  const qrBuffer = await QRCode.toDataURL(hash);
 
   const imageId = workbook.addImage({
-    buffer: qrBuffer,
+    base64: qrBuffer.replace(/^data:image\/png;base64,/, ""),
     extension: "png",
   });
 

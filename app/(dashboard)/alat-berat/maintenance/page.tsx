@@ -3,60 +3,60 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2, Eye, Pencil, Trash2 } from "lucide-react";
-import Swal from 'sweetalert2';
+import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import { useToast } from "@/components/ui/toast-context";
 
-interface Maintenance {
+interface Fuel {
   id: string;
   equipment_id: string | null;
   tanggal: string;
-  jenis: string | null;
-  vendor_id: number | null;
-  hm_service: number | null;
-  biaya: number | null;
+  liter: number;
+  harga: number;
+  total: number;
+  supplier: string | null;
   id_jurnal: number | null;
-  keterangan: string | null;
   created_at: string;
 }
 
-export default function MaintenancePage() {
+export default function FuelPage() {
   const router = useRouter();
   const { showToast } = useToast();
 
-  const [data, setData] = useState<Maintenance[]>([]);
+  const [data, setData] = useState<Fuel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
   async function fetchData(): Promise<void> {
     setLoading(true);
 
-    const res = await fetch("/api/alat-berat/maintenance");
+    const res = await fetch("/api/alat-berat/fuel");
 
     if (!res.ok) {
-      showToast("Gagal mengambil data maintenance", "error");
+      showToast("Gagal mengambil data fuel", "error");
       setLoading(false);
       return;
     }
 
-    const result: Maintenance[] = await res.json();
+    const result: Fuel[] = await res.json();
 
     setData(result);
     setLoading(false);
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
-      text: "Apakah Anda yakin menghapus Maintenance ini?",
+      text: "Apakah Anda yakin menghapus Fuel ini?",
       icon: "question",
       showCancelButton: true,
       confirmButtonColor: "#3085d6",
@@ -67,7 +67,7 @@ export default function MaintenancePage() {
 
     if (!confirm.isConfirmed) return;
 
-    const res = await fetch(`/api/alat-berat/maintenance/${id}`, {
+    const res = await fetch(`/api/alat-berat/fuel/${id}`, {
       method: "DELETE",
     });
 
@@ -84,11 +84,11 @@ export default function MaintenancePage() {
   return (
     <>
       <div className="max-w-7xl mx-auto">
-        <Card title="Equipment Maintenance">
+        <Card title="Fuel Consumption">
           <div className="flex justify-end mb-4">
-            <Button onClick={() => router.push("/alat-berat/maintenance/form")}>
+            <Button onClick={() => router.push("/alat-berat/fuel/form")}>
               <Plus className="w-4 h-4 mr-2" />
-              Tambah Maintenance
+              Tambah Fuel
             </Button>
           </div>
 
@@ -104,10 +104,10 @@ export default function MaintenancePage() {
                   <tr>
                     <th className="border px-3 py-2">Tanggal</th>
                     <th className="border px-3 py-2">Equipment</th>
-                    <th className="border px-3 py-2">Jenis</th>
-                    <th className="border px-3 py-2">HM Service</th>
-                    <th className="border px-3 py-2">Biaya</th>
-                    <th className="border px-3 py-2">Vendor</th>
+                    <th className="border px-3 py-2">Liter</th>
+                    <th className="border px-3 py-2">Harga</th>
+                    <th className="border px-3 py-2">Total</th>
+                    <th className="border px-3 py-2">Supplier</th>
                     <th className="border px-3 py-2 text-center">Aksi</th>
                   </tr>
                 </thead>
@@ -128,20 +128,14 @@ export default function MaintenancePage() {
                           {item.equipment_id ?? "-"}
                         </td>
 
-                        <td className="border px-3 py-2">
-                          {item.jenis ?? "-"}
-                        </td>
+                        <td className="border px-3 py-2">{item.liter}</td>
+
+                        <td className="border px-3 py-2">{item.harga}</td>
+
+                        <td className="border px-3 py-2">{item.total}</td>
 
                         <td className="border px-3 py-2">
-                          {item.hm_service ?? "-"}
-                        </td>
-
-                        <td className="border px-3 py-2">
-                          {item.biaya ?? "-"}
-                        </td>
-
-                        <td className="border px-3 py-2">
-                          {item.vendor_id ?? "-"}
+                          {item.supplier ?? "-"}
                         </td>
 
                         <td className="border px-3 py-2">
@@ -149,9 +143,7 @@ export default function MaintenancePage() {
                             <Button
                               variant="secondary"
                               onClick={() =>
-                                router.push(
-                                  `/alat-berat/maintenance/${item.id}`,
-                                )
+                                router.push(`/alat-berat/fuel/${item.id}`)
                               }
                             >
                               <Eye className="w-4 h-4" />
@@ -160,9 +152,7 @@ export default function MaintenancePage() {
                             <Button
                               variant="secondary"
                               onClick={() =>
-                                router.push(
-                                  `/alat-berat/maintenance/${item.id}/edit`,
-                                )
+                                router.push(`/alat-berat/fuel/${item.id}/edit`)
                               }
                             >
                               <Pencil className="w-4 h-4" />

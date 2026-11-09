@@ -1,17 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import {
-  useParams,
-  useRouter,
-} from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
-import {
-  Save,
-  ArrowLeft,
-  Loader2,
-} from "lucide-react";
+import { Save, ArrowLeft, Loader2 } from "lucide-react";
 
 import Swal from "sweetalert2";
 
@@ -21,31 +14,35 @@ import Button from "@/components/ui/Button";
 
 import { useToast } from "@/components/ui/toast-context";
 
-import {
-  jurnalKoreksiSchema,
-  type JurnalKoreksiInput,
-} from "@/lib/validators/jurnal-koreksi";
-
 /* =========================
    TYPES
 ========================= */
 
-interface EditForm {
-  tanggal: string;
-
-  no_bukti: string;
-
-  keterangan: string;
-
-  alasan: string;
-
+interface JurnalKoreksiDetail {
+  id: number;
   id_jurnal_asal: number;
+  id_jurnal_koreksi: number;
+  alasan: string;
+  created_at: string | null;
+}
 
-  lines: {
-    id_coa: number;
-    debit: number;
-    kredit: number;
-  }[];
+interface EditForm {
+  alasan: string;
+}
+
+interface ApiErrorResponse {
+  error?:
+    | string
+    | {
+        formErrors?: string[];
+        fieldErrors?: Record<string, string[] | undefined>;
+      };
+  message?: string;
+}
+
+interface ApiSuccessResponse {
+  success: boolean;
+  message?: string;
 }
 
 /* =========================
@@ -53,151 +50,97 @@ interface EditForm {
 ========================= */
 
 export default function EditJurnalKoreksiPage() {
-  const router =
-    useRouter();
+  const router = useRouter();
 
-  const params =
-    useParams();
+  const params = useParams<{ id: string }>();
 
-  const { showToast } =
-    useToast();
+  const { showToast } = useToast();
 
-  const id = Number(
-    params.id,
-  );
+  const id = Number(params.id);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState<boolean>(
-    true,
-  );
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
 
-  const [
-    saving,
-    setSaving,
-  ] = useState<boolean>(
-    false,
-  );
+  const [detail, setDetail] = useState<JurnalKoreksiDetail | null>(null);
 
-  const [form, setForm] =
-    useState<EditForm>({
-      tanggal: "",
-
-      no_bukti: "",
-
-      keterangan: "",
-
-      alasan: "",
-
-      id_jurnal_asal: 0,
-
-      lines: [],
-    });
+  const [form, setForm] = useState<EditForm>({
+    alasan: "",
+  });
 
   /* =========================
      FETCH DETAIL
   ========================= */
 
-  async function fetchDetail(): Promise<void> {
+  const fetchDetail = useCallback(async (): Promise<void> => {
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      showToast("ID jurnal koreksi tidak valid", "error");
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
 
-      const res =
-        await fetch(
-          `/api/jurnal-koreksi/${id}`,
-        );
+      const res = await fetch(`/api/jurnal-koreksi/${id}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result: unknown = await res.json();
 
       if (!res.ok) {
-        showToast(
-          "Gagal mengambil data jurnal koreksi",
-          "error",
-        );
+        const errorResult = result as ApiErrorResponse;
 
-        setLoading(false);
+        const message =
+          typeof errorResult.error === "string"
+            ? errorResult.error
+            : "Gagal mengambil data jurnal koreksi";
 
+        showToast(message, "error");
+        setDetail(null);
         return;
       }
 
-      const result =
-        (await res.json()) as {
-          id: number;
+      const data = result as JurnalKoreksiDetail;
 
-          alasan: string;
-
-          id_jurnal_asal: number;
-        };
+      setDetail(data);
 
       setForm({
-        tanggal: "",
-
-        no_bukti: "",
-
-        keterangan: "",
-
-        alasan:
-          result.alasan,
-
-        id_jurnal_asal:
-          result.id_jurnal_asal,
-
-        lines: [],
+        alasan: data.alasan,
       });
-    } catch (
-    error: unknown
-    ) {
-      console.error(
-        "FETCH EDIT ERROR:",
-        error,
-      );
+    } catch (error: unknown) {
+      console.error("FETCH EDIT JURNAL KOREKSI ERROR:", error);
 
       Swal.fire({
         icon: "error",
-
-        title:
-          "Error",
-
-        text:
-          "Terjadi kesalahan sistem",
+        title: "Gagal Memuat Data",
+        text: "Terjadi kesalahan saat mengambil data jurnal koreksi.",
       });
+
+      setDetail(null);
     } finally {
       setLoading(false);
     }
-  }
+  }, [id, showToast]);
 
   /* =========================
      LOAD
   ========================= */
 
   useEffect(() => {
-    if (
-      Number.isNaN(id)
-    ) {
-      return;
-    }
-
-    void fetchDetail();// eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchDetail();
+  }, [fetchDetail]);
 
   /* =========================
      CHANGE
   ========================= */
 
-  function handleChange<
-    K extends keyof EditForm,
-  >(
-    field: K,
-    value: EditForm[K],
-  ): void {
-    setForm(
-      (
-        prev,
-      ): EditForm => ({
-        ...prev,
-        [field]:
-          value,
-      }),
-    );
+  function handleAlasanChange(value: string): void {
+    setForm((previous) => ({
+      ...previous,
+      alasan: value,
+    }));
   }
 
   /* =========================
@@ -205,130 +148,73 @@ export default function EditJurnalKoreksiPage() {
   ========================= */
 
   async function handleSubmit(): Promise<void> {
+    if (!detail) {
+      showToast("Data jurnal koreksi belum tersedia", "error");
+      return;
+    }
+
+    const alasan = form.alasan.trim();
+
+    if (alasan.length < 3) {
+      Swal.fire({
+        icon: "warning",
+        title: "Validasi Gagal",
+        text: "Alasan koreksi minimal 3 karakter.",
+      });
+
+      return;
+    }
+
     try {
       setSaving(true);
 
-      const payload: JurnalKoreksiInput =
-      {
-        tanggal:
-          form.tanggal,
+      const res = await fetch(`/api/jurnal-koreksi/${id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          alasan,
+        }),
+      });
 
-        no_bukti:
-          form.no_bukti,
-
-        keterangan:
-          form.keterangan,
-
-        alasan:
-          form.alasan,
-
-        id_jurnal_asal:
-          form.id_jurnal_asal,
-
-        lines:
-          form.lines,
-      };
-
-      const parsed =
-        jurnalKoreksiSchema.safeParse(
-          payload,
-        );
-
-      if (
-        !parsed.success
-      ) {
-        Swal.fire({
-          icon: "error",
-
-          title:
-            "Validasi Gagal",
-
-          text:
-            "Periksa kembali data jurnal koreksi",
-        });
-
-        setSaving(false);
-
-        return;
-      }
-
-      const res =
-        await fetch(
-          `/api/jurnal-koreksi/${id}`,
-          {
-            method:
-              "PUT",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body:
-              JSON.stringify(
-                payload,
-              ),
-          },
-        );
-
-      const result =
-        (await res.json()) as {
-          error?: string;
-
-          message?: string;
-        };
-
-      setSaving(false);
+      const result: unknown = await res.json();
 
       if (!res.ok) {
+        const errorResult = result as ApiErrorResponse;
+
+        const message =
+          typeof errorResult.error === "string"
+            ? errorResult.error
+            : "Gagal memperbarui alasan jurnal koreksi";
+
         Swal.fire({
           icon: "error",
-
-          title:
-            "Gagal",
-
-          text:
-            result.error ??
-            "Gagal update jurnal koreksi",
+          title: "Gagal",
+          text: message,
         });
 
         return;
       }
 
-      Swal.fire({
+      const successResult = result as ApiSuccessResponse;
+
+      await Swal.fire({
         icon: "success",
-
-        title:
-          "Berhasil",
-
+        title: "Berhasil",
         text:
-          result.message ??
-          "Jurnal koreksi berhasil diupdate",
-
+          successResult.message ?? "Alasan jurnal koreksi berhasil diperbarui.",
         timer: 1500,
-
-        showConfirmButton:
-          false,
-      }).then(() => {
-        router.push(
-          "/accounting/jurnal-koreksi",
-        );
-
-        router.refresh();
+        showConfirmButton: false,
       });
-    } catch (
-    error: unknown
-    ) {
-      console.error(
-        "UPDATE ERROR:",
-        error,
-      );
 
-      showToast(
-        "Terjadi kesalahan sistem",
-        "error",
-      );
+      router.push("/accounting/jurnal-koreksi");
+      router.refresh();
+    } catch (error: unknown) {
+      console.error("UPDATE JURNAL KOREKSI ERROR:", error);
 
+      showToast("Terjadi kesalahan sistem saat menyimpan data", "error");
+    } finally {
       setSaving(false);
     }
   }
@@ -339,120 +225,136 @@ export default function EditJurnalKoreksiPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin" />
-        Memuat data...
+      <div className="flex items-center gap-2 p-4">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Memuat data jurnal koreksi...
       </div>
     );
   }
 
+  /* =========================
+     NOT FOUND
+  ========================= */
+
+  if (!detail) {
+    return (
+      <div className="mx-auto max-w-4xl">
+        <Card title="Edit Jurnal Koreksi">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Data jurnal koreksi tidak ditemukan atau tidak dapat dimuat.
+            </p>
+
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/accounting/jurnal-koreksi")}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Kembali
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  /* =========================
+     RENDER
+  ========================= */
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl">
       <Card title="Edit Jurnal Koreksi">
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Tanggal"
-            type="date"
-            value={
-              form.tanggal
-            }
-            onChange={(
-              e,
-            ) =>
-              handleChange(
-                "tanggal",
-                e.target
-                  .value,
-              )
-            }
-          />
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                ID Relasi Koreksi
+              </label>
 
-          <Input
-            label="No Bukti"
-            value={
-              form.no_bukti
-            }
-            onChange={(
-              e,
-            ) =>
-              handleChange(
-                "no_bukti",
-                e.target
-                  .value,
-              )
-            }
-          />
+              <Input
+                value={String(detail.id)}
+                disabled
+                onChange={() => undefined}
+              />
+            </div>
 
-          <div className="col-span-2">
-            <Input
-              label="Keterangan"
-              value={
-                form.keterangan
-              }
-              onChange={(
-                e,
-              ) =>
-                handleChange(
-                  "keterangan",
-                  e.target
-                    .value,
-                )
-              }
-            />
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                ID Jurnal Asal
+              </label>
+
+              <Input
+                value={String(detail.id_jurnal_asal)}
+                disabled
+                onChange={() => undefined}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                ID Jurnal Koreksi
+              </label>
+
+              <Input
+                value={String(detail.id_jurnal_koreksi)}
+                disabled
+                onChange={() => undefined}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Dibuat Pada
+              </label>
+
+              <Input
+                value={
+                  detail.created_at
+                    ? new Date(detail.created_at).toLocaleString("id-ID")
+                    : "-"
+                }
+                disabled
+                onChange={() => undefined}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <Input
+                label="Alasan Koreksi"
+                value={form.alasan}
+                onChange={(event) => handleAlasanChange(event.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="col-span-2">
-            <Input
-              label="Alasan Koreksi"
-              value={
-                form.alasan
-              }
-              onChange={(
-                e,
-              ) =>
-                handleChange(
-                  "alasan",
-                  e.target
-                    .value,
-                )
-              }
-            />
+          <div className="flex flex-wrap gap-3 border-t pt-5">
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/accounting/jurnal-koreksi")}
+              disabled={saving}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Kembali
+            </Button>
+
+            <Button
+              onClick={() => void handleSubmit()}
+              disabled={saving || form.alasan.trim().length < 3}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Menyimpan...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Simpan Perubahan
+                </>
+              )}
+            </Button>
           </div>
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <Button
-            variant="secondary"
-            onClick={() =>
-              router.push(
-                "/accounting/jurnal-koreksi",
-              )
-            }
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Kembali
-          </Button>
-
-          <Button
-            onClick={() =>
-              void handleSubmit()
-            }
-            disabled={
-              saving
-            }
-          >
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Menyimpan...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4 mr-2" />
-                Simpan
-              </>
-            )}
-          </Button>
         </div>
       </Card>
     </div>

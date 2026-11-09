@@ -4,11 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Save, ArrowLeft, Loader2 } from "lucide-react";
 import Swal from "sweetalert2";
-
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
-import { useToast } from "@/components/ui/toast-context";
 
 interface HutangInput {
   supplier: string;
@@ -24,7 +22,6 @@ interface HutangInput {
 
 export default function CreateHutangPage() {
   const router = useRouter();
-  const { showToast } = useToast();
 
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -45,96 +42,134 @@ export default function CreateHutangPage() {
   }
 
   async function handleSubmit(): Promise<void> {
-    setLoading(true);
-
-    const res = await fetch("/api/hutang", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(form),
-    });
-
-    setLoading(false);
-
-    if (!res.ok) {
-      Swal.fire({
-        icon: "error",
-        title: "Gagal",
-        text: "Gagal menyimpan hutang",
-      });
+    if (loading) {
       return;
     }
 
-    const result = await res.json();
+    setLoading(true);
 
-    Swal.fire({
-      icon: "success",
-      title: "Hutang Berhasil Masuk",
-      text: result.message,
-      confirmButtonText: "OK",
-    }).then(() => {
+    try {
+      const response = await fetch("/api/hutang", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(form),
+      });
+
+      const result: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          typeof result === "object" &&
+          result !== null &&
+          "error" in result &&
+          typeof result.error === "string"
+            ? result.error
+            : "Gagal menyimpan hutang.";
+
+        await Swal.fire({
+          icon: "error",
+          title: "Gagal",
+          text: message,
+        });
+
+        return;
+      }
+
+      const message =
+        typeof result === "object" &&
+        result !== null &&
+        "message" in result &&
+        typeof result.message === "string"
+          ? result.message
+          : "Hutang berhasil disimpan dan jurnal telah dibuat.";
+
+      await Swal.fire({
+        icon: "success",
+        title: "Hutang Berhasil Disimpan",
+        text: message,
+        confirmButtonText: "OK",
+      });
+
       router.push("/accounting/hutang");
       router.refresh();
-    });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat menyimpan hutang.";
+
+      await Swal.fire({
+        icon: "error",
+        title: "Gagal",
+        text: message,
+      });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="mx-auto max-w-3xl">
       <Card title="Tambah Hutang">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Input
             label="Supplier"
             value={form.supplier}
-            onChange={(e) => handleChange("supplier", e.target.value)}
+            onChange={(event) => handleChange("supplier", event.target.value)}
           />
 
           <Input
             label="No Invoice"
             value={form.no_invoice}
-            onChange={(e) => handleChange("no_invoice", e.target.value)}
+            onChange={(event) => handleChange("no_invoice", event.target.value)}
           />
 
           <Input
             label="Tanggal"
             type="date"
             value={form.tanggal}
-            onChange={(e) => handleChange("tanggal", e.target.value)}
+            onChange={(event) => handleChange("tanggal", event.target.value)}
           />
 
           <Input
             label="Jatuh Tempo"
             type="date"
             value={form.jatuh_tempo}
-            onChange={(e) => handleChange("jatuh_tempo", e.target.value)}
+            onChange={(event) =>
+              handleChange("jatuh_tempo", event.target.value)
+            }
           />
 
           <Input
             label="Nilai"
             type="number"
+            min="0"
             value={form.nilai}
-            onChange={(e) => handleChange("nilai", e.target.value)}
+            onChange={(event) => handleChange("nilai", event.target.value)}
           />
         </div>
 
-        <div className="flex gap-3 mt-6">
+        <div className="mt-6 flex gap-3">
           <Button
             variant="secondary"
             onClick={() => router.push("/accounting/hutang")}
+            disabled={loading}
           >
-            <ArrowLeft className="w-4 h-4 mr-2" />
+            <ArrowLeft className="mr-2 h-4 w-4" />
             Kembali
           </Button>
 
           <Button onClick={handleSubmit} disabled={loading}>
             {loading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Menyimpan...
               </>
             ) : (
               <>
-                <Save className="w-4 h-4 mr-2" />
+                <Save className="mr-2 h-4 w-4" />
                 Simpan
               </>
             )}

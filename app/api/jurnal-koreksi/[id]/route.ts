@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { db } from "@/lib/supabase/server";
-
-import {
-  jurnalKoreksiSchema,
-  validateKoreksiLines,
-  type JurnalKoreksiInput,
-} from "@/lib/validators/jurnal-koreksi";
 
 /* =========================
    TYPES
@@ -16,152 +11,162 @@ type Params = {
   id: string;
 };
 
+type RouteContext = {
+  params: Promise<Params>;
+};
+
+/* =========================
+   VALIDATION
+========================= */
+
+const updateJurnalKoreksiSchema = z.object({
+  alasan: z.string().trim().min(3, "Alasan koreksi minimal 3 karakter"),
+});
+
+/* =========================
+   HELPERS
+========================= */
+
+function parseRecordId(id: string): number | null {
+  const parsedId = Number(id);
+
+  if (!Number.isSafeInteger(parsedId) || parsedId <= 0) {
+    return null;
+  }
+
+  return parsedId;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Terjadi kesalahan sistem";
+}
+
 /* =========================
    GET DETAIL
 ========================= */
 
 export async function GET(
   _req: NextRequest,
-  {
-    params,
-  }: {
-    params: Promise<Params>;
-  },
+  { params }: RouteContext,
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
+    const recordId = parseRecordId(id);
+
+    if (recordId === null) {
+      return NextResponse.json(
+        { error: "ID jurnal koreksi tidak valid" },
+        { status: 400 },
+      );
+    }
 
     const { data, error } = await db
       .from("jurnal_koreksi")
       .select(
         `
-        id,
-        id_jurnal_asal,
-        id_jurnal_koreksi,
-        alasan,
-        created_at
-      `,
+          id,
+          id_jurnal_asal,
+          id_jurnal_koreksi,
+          alasan,
+          created_at
+        `,
       )
-      .eq("id", Number(id))
-      .limit(1)
+      .eq("id", recordId)
       .maybeSingle();
 
     if (error) {
+      console.error("GET JURNAL KOREKSI ERROR:", error);
+
       return NextResponse.json(
-        {
-          error: error.message,
-        },
-        {
-          status: 500,
-        },
+        { error: "Gagal mengambil data jurnal koreksi" },
+        { status: 500 },
       );
     }
 
     if (!data) {
       return NextResponse.json(
-        {
-          error: "Data tidak ditemukan",
-        },
-        {
-          status: 404,
-        },
+        { error: "Data jurnal koreksi tidak ditemukan" },
+        { status: 404 },
       );
     }
 
     return NextResponse.json(data);
   } catch (error: unknown) {
+    console.error("GET JURNAL KOREKSI ERROR:", error);
+
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      {
-        status: 500,
-      },
+      { error: getErrorMessage(error) },
+      { status: 500 },
     );
   }
 }
 
 /* =========================
-   PUT
+   PUT - UPDATE ALASAN
 ========================= */
 
 export async function PUT(
   req: NextRequest,
-  {
-    params,
-  }: {
-    params: Promise<Params>;
-  },
+  { params }: RouteContext,
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
+    const recordId = parseRecordId(id);
+
+    if (recordId === null) {
+      return NextResponse.json(
+        { error: "ID jurnal koreksi tidak valid" },
+        { status: 400 },
+      );
+    }
 
     const body: unknown = await req.json();
-
-    const parsed = jurnalKoreksiSchema.safeParse(body);
+    const parsed = updateJurnalKoreksiSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
         {
           error: parsed.error.flatten(),
         },
-        {
-          status: 400,
-        },
+        { status: 400 },
       );
     }
 
-    const input: JurnalKoreksiInput = parsed.data;
-
-    /* =========================
-       ANTI MINUS
-    ========================= */
-
-    for (const line of input.lines) {
-      if (line.debit < 0 || line.kredit < 0) {
-        return NextResponse.json(
-          {
-            error: "Nilai debit/kredit tidak boleh minus",
-          },
-          {
-            status: 400,
-          },
-        );
-      }
-    }
-
-    validateKoreksiLines(input.lines);
-
-    const { error } = await db
+    const { data, error } = await db
       .from("jurnal_koreksi")
       .update({
-        alasan: input.alasan,
+        alasan: parsed.data.alasan,
       })
-      .eq("id", Number(id));
+      .eq("id", recordId)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
+      console.error("UPDATE JURNAL KOREKSI ERROR:", error);
+
       return NextResponse.json(
-        {
-          error: error.message,
-        },
-        {
-          status: 500,
-        },
+        { error: "Gagal memperbarui alasan jurnal koreksi" },
+        { status: 500 },
+      );
+    }
+
+    if (!data) {
+      return NextResponse.json(
+        { error: "Data jurnal koreksi tidak ditemukan" },
+        { status: 404 },
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "Jurnal koreksi berhasil diupdate",
+      message: "Alasan jurnal koreksi berhasil diperbarui",
     });
   } catch (error: unknown) {
+    console.error("UPDATE JURNAL KOREKSI ERROR:", error);
+
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      {
-        status: 500,
-      },
+      { error: getErrorMessage(error) },
+      { status: 500 },
     );
   }
 }
@@ -170,45 +175,23 @@ export async function PUT(
    DELETE
 ========================= */
 
-export async function DELETE(
-  _req: NextRequest,
-  {
-    params,
-  }: {
-    params: Promise<Params>;
-  },
-): Promise<NextResponse> {
-  try {
-    const { id } = await params;
+/*
+  Penghapusan relasi jurnal koreksi tidak dilakukan di sini.
 
-    const { error } = await db
-      .from("jurnal_koreksi")
-      .delete()
-      .eq("id", Number(id));
+  Tabel jurnal_koreksi menghubungkan jurnal asal dengan jurnal
+  koreksi yang sudah dibuat. Menghapus relasi saja dapat
+  meninggalkan jurnal koreksi posted tanpa hubungan historis.
 
-    if (error) {
-      return NextResponse.json(
-        {
-          error: error.message,
-        },
-        {
-          status: 500,
-        },
-      );
-    }
+  Penghapusan harus mengikuti prosedur pembatalan/reversal
+  akuntansi yang berlaku, bukan menghapus relasinya saja.
+*/
 
-    return NextResponse.json({
-      success: true,
-      message: "Jurnal koreksi berhasil dihapus",
-    });
-  } catch (error: unknown) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      {
-        status: 500,
-      },
-    );
-  }
+export async function DELETE(): Promise<NextResponse> {
+  return NextResponse.json(
+    {
+      error:
+        "Penghapusan relasi jurnal koreksi dinonaktifkan. Gunakan prosedur pembatalan jurnal sesuai aturan akuntansi.",
+    },
+    { status: 409 },
+  );
 }

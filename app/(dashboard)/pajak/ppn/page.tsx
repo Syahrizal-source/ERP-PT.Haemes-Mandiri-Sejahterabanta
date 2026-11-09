@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Download } from "lucide-react";
 import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
@@ -60,7 +60,7 @@ export default function PPNPage(): React.JSX.Element {
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchData(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleDelete(id: number): Promise<void> {
@@ -91,10 +91,15 @@ export default function PPNPage(): React.JSX.Element {
 
   return (
     <Card title="Transaksi PPN">
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-4">
         <Button onClick={() => router.push("/pajak/ppn/form")}>
           <Plus className="w-4 h-4 mr-2" />
           Tambah
+        </Button>
+
+        <Button onClick={() => router.push("/pajak/ppn/laporan")}>
+          <Download className="w-4 h-4 mr-2" />
+          Laporan
         </Button>
       </div>
 

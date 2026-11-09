@@ -1,75 +1,127 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase/server";
-import { validatePositive } from "@/lib/validator";
 
 import {
   proyekOperasionalSchema,
-  ProyekOperasionalRequest,
+  type ProyekOperasionalRequest,
 } from "@/lib/validators/proyekOperasional";
 
 import { postOperasional } from "@/lib/accounting/postProyekOperasional";
 
+// =====================================================
+// GET
+// =====================================================
+
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+  try {
+    const { searchParams } = new URL(req.url);
 
-  const idProyek = searchParams.get("id_proyek");
+    const idProyek = searchParams.get("id_proyek");
 
-  let query = db
-    .from("proyek_operasional")
-    .select(
-      `
-      *,
-      kategori:kategori_biaya_proyek(
-        id,
-        kode,
-        nama,
-        jenis
+    let query = db
+      .from("proyek_operasional")
+      .select(
+        `
+          *,
+          kategori:kategori_biaya_proyek(
+            id,
+            kode,
+            nama,
+            jenis,
+            aktif
+          )
+        `,
       )
-    `,
-    )
-    .order("tanggal", { ascending: false })
-    .order("created_at", { ascending: false });
+      .order("tanggal", { ascending: false })
+      .order("created_at", { ascending: false });
 
-  if (idProyek) {
-    query = query.eq("id_proyek", idProyek);
+    if (idProyek) {
+      query = query.eq("id_proyek", idProyek);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    return NextResponse.json(data);
+  } catch (error: unknown) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Gagal mengambil data operasional proyek.",
+      },
+      {
+        status: 500,
+      },
+    );
   }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json(data);
 }
+
+// =====================================================
+// POST
+// Simpan + Posting Jurnal
+// =====================================================
 
 export async function POST(req: NextRequest) {
   try {
-    // =========================================
-    // BACA BODY HANYA SEKALI
-    // =========================================
+    // =================================================
+    // 1. BACA BODY
+    // =================================================
+
     const json: unknown = await req.json();
 
-    console.log("BODY OPERASIONAL:", json);
+    // =================================================
+    // 2. VALIDASI ZOD
+    // =================================================
 
     const body: ProyekOperasionalRequest = proyekOperasionalSchema.parse(json);
 
-    // =========================================
-    // VALIDASI NILAI
-    // =========================================
-    validatePositive(body.qty, "Qty");
-    validatePositive(body.harga, "Harga");
+    // =================================================
+    // 3. VALIDASI NILAI
+    // =================================================
 
-    const total = Number(body.qty) * Number(body.harga);
+    const qty = Number(body.qty);
+    const harga = Number(body.harga);
 
-    validatePositive(total, "Total");
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error("Qty harus lebih besar dari 0.");
+    }
 
-    // =========================================
-    // VALIDASI PROYEK
-    // =========================================
+    if (!Number.isFinite(harga) || harga < 0) {
+      throw new Error("Harga tidak boleh negatif.");
+    }
+
+    const total = qty * harga;
+
+    if (!Number.isFinite(total) || total <= 0) {
+      throw new Error("Total operasional harus lebih besar dari 0.");
+    }
+
+    // =================================================
+    // 4. VALIDASI PROYEK
+    // =================================================
+
     const { data: proyek, error: proyekError } = await db
       .from("proyek_master")
-      .select("id, status")
+      .select(
+        `
+          id,
+          kode_proyek,
+          nama_proyek,
+          status
+        `,
+      )
       .eq("id", body.id_proyek)
       .single();
 
@@ -77,18 +129,27 @@ export async function POST(req: NextRequest) {
       throw new Error("Proyek tidak ditemukan.");
     }
 
-    if (!["OPEN", "BERJALAN"].includes(proyek.status)) {
+    if (proyek.status !== "OPEN" && proyek.status !== "BERJALAN") {
       throw new Error(
-        `Status proyek ${proyek.status} tidak dapat menerima transaksi.`,
+        `Status proyek ${proyek.status} tidak dapat menerima transaksi operasional.`,
       );
     }
 
-    // =========================================
-    // VALIDASI KATEGORI
-    // =========================================
+    // =================================================
+    // 5. VALIDASI KATEGORI
+    // =================================================
+
     const { data: kategori, error: kategoriError } = await db
       .from("kategori_biaya_proyek")
-      .select("id, kode, nama, aktif, jenis")
+      .select(
+        `
+          id,
+          kode,
+          nama,
+          jenis,
+          aktif
+        `,
+      )
       .eq("id", body.id_kategori)
       .single();
 
@@ -97,144 +158,271 @@ export async function POST(req: NextRequest) {
     }
 
     if (!kategori.aktif) {
-      throw new Error("Kategori sudah tidak aktif.");
+      throw new Error(`Kategori ${kategori.nama} sudah tidak aktif.`);
     }
 
-    // =========================================
-    // NOMOR BUKTI OTOMATIS
-    // =========================================
+    if (!kategori.kode) {
+      throw new Error("Kode kategori operasional tidak ditemukan.");
+    }
+
+    // =================================================
+    // 6. NOMOR BUKTI
+    //
+    // Database:
+    // no_bukti varchar(50) NOT NULL UNIQUE
+    //
+    // Kalau user tidak mengisi, sistem membuat otomatis.
+    // =================================================
+
     const noBukti =
       body.no_bukti?.trim() ||
       `OPR-${body.tanggal.replace(/-/g, "")}-${crypto
         .randomUUID()
-        .substring(0, 6)
+        .replace(/-/g, "")
+        .substring(0, 8)
         .toUpperCase()}`;
 
-    // =========================================
-    // PAYLOAD DATABASE
-    // =========================================
+    if (noBukti.length > 50) {
+      throw new Error("Nomor bukti maksimal 50 karakter.");
+    }
+
+    // =================================================
+    // 7. CEK DUPLIKAT NO BUKTI
+    // =================================================
+
+    const { data: existingNoBukti, error: duplicateError } = await db
+      .from("proyek_operasional")
+      .select("id")
+      .eq("no_bukti", noBukti)
+      .maybeSingle();
+
+    if (duplicateError) {
+      throw new Error(duplicateError.message);
+    }
+
+    if (existingNoBukti) {
+      throw new Error(`Nomor bukti ${noBukti} sudah digunakan.`);
+    }
+
+    // =================================================
+    // 8. PAYLOAD DATABASE
+    //
+    // Sesuai tabel:
+    //
+    // id_proyek
+    // id_kategori
+    // no_bukti
+    // tanggal
+    // uraian
+    // qty
+    // satuan
+    // harga
+    // total
+    // supplier
+    // metode_pembayaran
+    // periode
+    // status
+    // keterangan
+    // created_by
+    //
+    // id_jurnal TIDAK diisi di sini.
+    // =================================================
+
     const payload = {
       id_proyek: body.id_proyek,
       id_kategori: body.id_kategori,
       no_bukti: noBukti,
       tanggal: body.tanggal,
       uraian: body.uraian,
-      qty: body.qty,
-      satuan: body.satuan,
-      harga: body.harga,
+      qty,
+      satuan: body.satuan?.trim() || null,
+      harga,
       total,
-      supplier: body.supplier ?? null,
+      supplier: body.supplier?.trim() || null,
       metode_pembayaran: body.metode_pembayaran,
-      periode: body.periode ?? null,
+      periode: body.periode?.trim() || null,
 
-      // Transaksi langsung diposting melalui accounting
+      // Transaksi ini langsung diposting.
       status: "POSTED" as const,
 
+      keterangan: body.keterangan?.trim() || null,
       created_by: body.created_by ?? null,
-      keterangan: body.keterangan ?? null,
     };
 
-    // =========================================
-    // SIMPAN TRANSAKSI
-    // =========================================
+    // =================================================
+    // 9. INSERT OPERASIONAL
+    // =================================================
+
     const { data: inserted, error: insertError } = await db
       .from("proyek_operasional")
       .insert(payload)
-      .select()
+      .select("*")
       .single();
 
-    if (insertError) {
-      throw new Error(insertError.message);
-    }
-
-    if (!inserted) {
-      throw new Error("Operasional proyek gagal disimpan.");
-    }
-
-    // =========================================
-    // POSTING JURNAL
-    // =========================================
-    const idJurnal = await postOperasional({
-      id_operasional: inserted.id,
-      id_proyek: inserted.id_proyek,
-      id_kategori: inserted.id_kategori,
-      no_bukti: inserted.no_bukti,
-      tanggal: inserted.tanggal,
-      uraian: inserted.uraian,
-      qty: Number(inserted.qty),
-      satuan: inserted.satuan,
-      harga: Number(inserted.harga),
-      metode_pembayaran: inserted.metode_pembayaran,
-      periode: inserted.periode,
-      status: inserted.status,
-      supplier: inserted.supplier,
-      keterangan: inserted.keterangan,
-      created_by: inserted.created_by,
-    });
-
-    // =========================================
-    // SIMPAN ID JURNAL
-    // =========================================
-    const { error: updateError } = await db
-      .from("proyek_operasional")
-      .update({
-        id_jurnal: idJurnal,
-        status: "POSTED",
-      })
-      .eq("id", inserted.id);
-
-    if (updateError) {
+    if (insertError || !inserted) {
       throw new Error(
-        `Jurnal berhasil dibuat tetapi gagal menghubungkan transaksi: ${updateError.message}`,
+        insertError?.message ?? "Operasional proyek gagal disimpan.",
       );
     }
 
-    // =========================================
-    // AUDIT LOG
-    // =========================================
+    // =================================================
+    // 10. POSTING JURNAL
+    //
+    // PENTING:
+    //
+    // COA TIDAK DITENTUKAN DI API.
+    //
+    // postOperasional() akan:
+    //
+    // 1. Ambil kategori.kode
+    // 2. getCoaMappingDetail("PROYEK", kategori.kode)
+    // 3. Tentukan COA lawan berdasarkan:
+    //    KAS
+    //    KAS_BESAR
+    //    KAS_KECIL
+    //    BANK
+    //    HUTANG
+    //
+    // Jadi tidak ada hard-code COA.
+    // =================================================
+
+    let idJurnal: number;
+
+    try {
+      idJurnal = await postOperasional({
+        id_operasional: inserted.id,
+
+        id_proyek: inserted.id_proyek,
+
+        id_kategori: inserted.id_kategori,
+
+        no_bukti: inserted.no_bukti,
+
+        tanggal: inserted.tanggal,
+
+        uraian: inserted.uraian,
+
+        qty: Number(inserted.qty),
+
+        satuan: inserted.satuan,
+
+        harga: Number(inserted.harga),
+
+        metode_pembayaran: inserted.metode_pembayaran,
+
+        periode: inserted.periode,
+
+        status: inserted.status,
+
+        supplier: inserted.supplier,
+
+        keterangan: inserted.keterangan,
+
+        created_by: inserted.created_by,
+      });
+    } catch (postingError: unknown) {
+      // ===============================================
+      // Jika posting gagal, hapus transaksi draft
+      // yang baru saja dibuat.
+      //
+      // Ini mencegah transaksi operasional tanpa jurnal.
+      // ===============================================
+
+      await db
+        .from("proyek_operasional")
+        .delete()
+        .eq("id", inserted.id)
+        .is("id_jurnal", null);
+
+      throw postingError;
+    }
+
+    // =================================================
+    // 11. AMBIL DATA FINAL
+    //
+    // postOperasional() sudah mengisi id_jurnal.
+    // Jadi kita tidak melakukan update kedua kali.
+    // =================================================
+
+    const { data: finalData, error: finalError } = await db
+      .from("proyek_operasional")
+      .select(
+        `
+          *,
+          kategori:kategori_biaya_proyek(
+            id,
+            kode,
+            nama,
+            jenis,
+            aktif
+          )
+        `,
+      )
+      .eq("id", inserted.id)
+      .single();
+
+    if (finalError || !finalData) {
+      throw new Error(
+        `Jurnal ${idJurnal} berhasil dibuat, tetapi data operasional gagal dibaca kembali.`,
+      );
+    }
+
+    // =================================================
+    // 12. PASTIKAN ID JURNAL TERISI
+    // =================================================
+
+    if (finalData.id_jurnal === null) {
+      throw new Error(
+        `Jurnal ${idJurnal} berhasil dibuat tetapi ID jurnal belum terhubung ke operasional.`,
+      );
+    }
+
+    // =================================================
+    // 13. AUDIT LOG
+    // =================================================
+
     const { error: auditError } = await db.from("audit_log").insert({
       modul: "PROYEK",
       tabel: "proyek_operasional",
       aksi: "INSERT",
       id_referensi: inserted.id,
       data: {
-        ...inserted,
+        ...finalData,
         id_jurnal: idJurnal,
-        no_bukti: noBukti,
         kategori: kategori.nama,
         kode_kategori: kategori.kode,
         total,
       },
     });
 
+    // Audit log tidak boleh membatalkan transaksi
+    // yang jurnalnya sudah berhasil.
     if (auditError) {
       console.error("AUDIT LOG OPERASIONAL:", auditError.message);
     }
 
-    // =========================================
-    // RESPONSE
-    // =========================================
+    // =================================================
+    // 14. RESPONSE
+    // =================================================
+
     return NextResponse.json(
       {
         success: true,
-        message: "Operasional proyek berhasil ditambahkan.",
-        data: {
-          ...inserted,
-          id_jurnal: idJurnal,
-          no_bukti: noBukti,
-          status: "POSTED",
-        },
+        message:
+          "Operasional proyek berhasil ditambahkan dan diposting ke jurnal.",
+        data: finalData,
       },
       {
         status: 201,
       },
     );
-  } catch (e: unknown) {
-    console.error("POST OPERASIONAL PROYEK ERROR:", e);
+  } catch (error: unknown) {
+    console.error("POST OPERASIONAL PROYEK ERROR:", error);
 
     return NextResponse.json(
       {
-        error: e instanceof Error ? e.message : "Terjadi kesalahan.",
+        success: false,
+        error: error instanceof Error ? error.message : "Terjadi kesalahan.",
       },
       {
         status: 400,

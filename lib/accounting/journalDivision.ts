@@ -10,7 +10,7 @@ export type JournalDivision =
 export function getJournalDivision(kodeCoa: string): JournalDivision {
   const hierarchy = getCorporateHierarchy(kodeCoa);
 
-  const division = hierarchy.division?.trim().toUpperCase() ?? "";
+  const division = hierarchy.section?.trim().toUpperCase() ?? "";
 
   switch (division) {
     case "ARMADA":

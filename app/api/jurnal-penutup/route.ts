@@ -7,7 +7,7 @@ import type { JurnalLine } from "@/types/accounting";
 import { postJurnalUmum } from "@/lib/accounting/postJurnalUmum";
 
 /* =========================
-   TYPES
+   TYPES
 ========================= */
 
 interface RequestBody {
@@ -22,18 +22,17 @@ interface SaldoRow {
 }
 
 /* =========================
-   POST JURNAL PENUTUP
+   POST JURNAL PENUTUP
 ========================= */
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const body: unknown = await req.json();
 
-    const { id_periode, tanggal } = body as RequestBody;
-
-    /* =========================
-       VALIDASI
-    ========================= */
+    const { id_periode, tanggal } =
+      body as RequestBody; /* =========================
+       VALIDASI
+    ========================= */
 
     if (!id_periode || !tanggal) {
       return NextResponse.json(
@@ -42,11 +41,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 400 },
       );
-    }
-
-    /* =========================
-       CEK PERIODE
-    ========================= */
+    } /* =========================
+       CEK PERIODE
+    ========================= */
 
     const { data: periode, error: periodeError } = await db
       .from("periode")
@@ -70,11 +67,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 400 },
       );
-    }
-
-    /* =========================
-       CEK SUDAH CLOSING
-    ========================= */
+    } /* =========================
+       CEK SUDAH CLOSING
+    ========================= */
 
     const { data: existing } = await db
       .from("jurnal_penutup")
@@ -89,11 +84,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 400 },
       );
-    }
-
-    /* =========================
-       AMBIL SALDO LABA RUGI
-    ========================= */
+    } /* =========================
+       AMBIL SALDO LABA RUGI
+    ========================= */
 
     const { data: saldoData, error: saldoError } = await db.rpc(
       "get_saldo_labarugi",
@@ -109,20 +102,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 500 },
       );
-    }
+    } /* =========================
+       NORMALISASI DATA
+    ========================= */
 
-    /* =========================
-       NORMALISASI DATA
-    ========================= */
+    let totalLabaRugi = 0; /*
+      Function sekarang return:
+      numeric
 
-    let totalLabaRugi = 0;
-
-    /*
-      Function sekarang return:
-      numeric
-
-      bukan array.
-    */
+      bukan array.
+    */
 
     if (typeof saldoData === "number") {
       totalLabaRugi = Number(saldoData);
@@ -137,11 +126,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 500 },
       );
-    }
-
-    /* =========================
-       TIDAK ADA SALDO
-    ========================= */
+    } /* =========================
+       TIDAK ADA SALDO
+    ========================= */
 
     if (totalLabaRugi === 0) {
       return NextResponse.json(
@@ -150,20 +137,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 400 },
       );
-    }
+    } /* =========================
+       LABA DITAHAN
+    ========================= */ /*
+      Ambil dari COA mapping
+      kategori:
+      LABA_DITAHAN
 
-    /* =========================
-       LABA DITAHAN
-    ========================= */
-
-    /*
-      Ambil dari COA mapping
-      kategori:
-      LABA_DITAHAN
-
-      sementara fallback:
-      33001
-    */
+      sementara fallback:
+      33001
+    */
 
     let labaDitahanCoa = 33001;
 
@@ -175,21 +158,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (coaData?.id_coa) {
       labaDitahanCoa = Number(coaData.id_coa);
-    }
+    } /* =========================
+       JURNAL LINE
+    ========================= */
 
-    /* =========================
-       JURNAL LINE
-    ========================= */
+    const lines: JurnalLine[] = []; /*
+      Jika laba:
+      Dr Pendapatan
+      Cr Laba Ditahan
 
-    const lines: JurnalLine[] = [];
-
-    /*
-      Jika laba:
-      Dr Pendapatan
-      Cr Laba Ditahan
-
-      Simplified closing.
-    */
+      Simplified closing.
+    */
 
     if (totalLabaRugi > 0) {
       lines.push({
@@ -217,11 +196,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         debit: 0,
         kredit: nilai,
       });
-    }
-
-    /* =========================
-       VALIDASI BALANCE
-    ========================= */
+    } /* =========================
+       VALIDASI BALANCE
+    ========================= */
 
     const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
 
@@ -234,22 +211,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         },
         { status: 400 },
       );
-    }
-
-    /* =========================
-       POST JURNAL
-    ========================= */
+    } /* =========================
+       POST JURNAL
+    ========================= */
 
     const jurnalId: number = await postJurnalUmum(
       tanggal,
       `CLOSE-${id_periode}`,
       `Jurnal Penutup Periode ${id_periode}`,
       lines,
-    );
-
-    /* =========================
-       SIMPAN LOG
-    ========================= */
+    ); /* =========================
+       SIMPAN LOG
+    ========================= */
 
     const { error: insertError } = await db.from("jurnal_penutup").insert({
       id_periode,

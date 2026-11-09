@@ -94,14 +94,36 @@ const navigation: NavigationItem[] = [
     sections: [
       {
         title: "Dashboard",
-        children: [{ label: "Dashboard Armada", href: "/transaksi/armada" }],
+        children: [
+          {
+            label: "Dashboard Armada",
+            href: "/transaksi/armada",
+          },
+        ],
       },
       {
         title: "Transaksi",
         children: [
-          { label: "Form Armada", href: "/transaksi/armada/form" },
-          { label: "Kas Armada", href: "/transaksi/kas-armada" },
-          { label: "Form Kas Armada", href: "/transaksi/kas-armada/form" },
+          {
+            label: "Form Armada",
+            href: "/transaksi/armada/form",
+          },
+          {
+            label: "Pembayaran Tagihan Armada",
+            href: "/transaksi/pembayaran-tagihan-armada",
+          },
+          {
+            label: "Form Pembayaran Tagihan Armada",
+            href: "/transaksi/pembayaran-tagihan-armada/form",
+          },
+          {
+            label: "Kas Armada",
+            href: "/transaksi/kas-armada",
+          },
+          {
+            label: "Form Kas Armada",
+            href: "/transaksi/kas-armada/form",
+          },
         ],
       },
     ],
@@ -216,6 +238,7 @@ const navigation: NavigationItem[] = [
           { label: "Hutang", href: "/proyek/hutang" },
           { label: "Piutang", href: "/proyek/piutang-non-proyek" },
           { label: "Piutang", href: "/proyek/piutang" },
+          { label: "Pembayaran Hutang", href: "/proyek/pembayaran-hutang" },
         ],
       },
       {
@@ -235,42 +258,6 @@ const navigation: NavigationItem[] = [
         children: [
           { label: "Daftar Vendor", href: "/vendors" },
           { label: "Tambah Vendor", href: "/vendors/form" },
-        ],
-      },
-    ],
-  },
-
-  {
-    label: "CRM",
-    icon: <UsersRound className="w-4 h-4" />,
-    roles: ["ADMIN", "ACCOUNTING", "PROYEK", "PURCHASING"],
-    sections: [
-      {
-        title: "Customer",
-        children: [
-          { label: "Customer List", href: "/crm/customer" },
-          { label: "Tambah Customer", href: "/crm/customer/form" },
-        ],
-      },
-      {
-        title: "Lead",
-        children: [
-          { label: "Lead List", href: "/crm/lead" },
-          { label: "Tambah Lead", href: "/crm/lead/form" },
-        ],
-      },
-      {
-        title: "Deal",
-        children: [
-          { label: "Deal List", href: "/crm/deal" },
-          { label: "Tambah Deal", href: "/crm/deal/form" },
-        ],
-      },
-      {
-        title: "Activity",
-        children: [
-          { label: "Activity List", href: "/crm/activity" },
-          { label: "Tambah Activity", href: "/crm/activity/form" },
         ],
       },
     ],
@@ -344,6 +331,14 @@ const navigation: NavigationItem[] = [
         ],
       },
       {
+        title: "Biaya Umum",
+        children: [{ label: "Biaya Umum", href: "/accounting/biayaUmum" }],
+      },
+      {
+        title: "COA",
+        children: [{ label: "COA", href: "/accounting/coa" }],
+      },
+      {
         title: "Laporan Keuangan",
         children: [
           { label: "Report", href: "/accounting/report" },
@@ -366,6 +361,16 @@ const navigation: NavigationItem[] = [
           { label: "PPH4", href: "/pajak/pph4" },
           { label: "PPH25", href: "/pajak/pph25" },
           { label: "PPN", href: "/pajak/ppn" },
+        ],
+      },
+      {
+        title: "Pembayaran Pajak",
+        children: [
+          { label: "PPH4", href: "/pajak/pembayaran-pph4" },
+          { label: "PPN", href: "/pajak/pembayaran-ppn" },
+          { label: "PPH23", href: "/pajak/pembayaran-pph23" },
+          { label: "PPH21", href: "/pajak/pembayaran-pph21" },
+          { label: "PPH25", href: "/pajak/pembayaran-pph25" },
         ],
       },
     ],
@@ -440,11 +445,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                             </div>
 
                             {section.children.map((child) => {
-                              const active = pathname.startsWith(child.href);
+                              const isFormRoute = child.href.endsWith("/form");
+
+                              const active = isFormRoute
+                                ? pathname === child.href
+                                : pathname === child.href ||
+                                  (pathname.startsWith(`${child.href}/`) &&
+                                    !pathname.startsWith(`${child.href}/form`));
 
                               return (
                                 <Link
-                                  key={child.href}
+                                  key={`${section.title}-${child.label}-${child.href}`}
                                   href={child.href}
                                   className={`block px-2 py-1 rounded ${
                                     active

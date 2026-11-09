@@ -1,55 +1,90 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
 import { useRouter } from "next/navigation";
+
 import { Plus, Loader2, Eye, Trash2 } from "lucide-react";
+
 import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
+
 import { useToast } from "@/components/ui/toast-context";
+
+/* ============================================================
+ * TYPE
+ * ============================================================ */
 
 interface PembayaranHutang {
   id: number;
   tanggal: string;
   id_hutang: number;
   nominal: number;
-  ppn: number;
-  pph23: number;
   total: number;
   keterangan: string;
 }
 
-export default function Page() {
+/* ============================================================
+ * PAGE
+ * ============================================================ */
+
+export default function Page(): React.JSX.Element {
   const router = useRouter();
+
   const { showToast } = useToast();
 
   const [data, setData] = useState<PembayaranHutang[]>([]);
+
   const [loading, setLoading] = useState<boolean>(true);
-  const [deleteId, setlDeleteId] = useState<number | null>(null);
 
   async function fetchData(): Promise<void> {
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    const res = await fetch("/api/pembayaran-hutang");
+      const res = await fetch("/api/pembayaran-hutang", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-    if (!res.ok) {
-      showToast("Gagal mengambil data", "error");
+      if (!res.ok) {
+        showToast("Gagal mengambil data", "error");
+
+        return;
+      }
+
+      const result: unknown = await res.json();
+
+      if (!Array.isArray(result)) {
+        showToast("Format data pembayaran hutang tidak valid", "error");
+
+        return;
+      }
+
+      const normalizedData: PembayaranHutang[] =
+        normalizePembayaranHutangList(result);
+
+      setData(normalizedData);
+    } catch (error: unknown) {
+      console.error("FETCH PEMBAYARAN HUTANG ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Gagal mengambil data",
+        "error",
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const result: PembayaranHutang[] = await res.json();
-
-    setData(result);
-    setLoading(false);
   }
 
   useEffect(() => {
-    fetchData();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void fetchData();
   }, []);
+
+  /* ============================================================
+   * DELETE
+   * ============================================================ */
 
   async function handleDelete(id: number): Promise<void> {
     const confirm = await Swal.fire({
@@ -63,26 +98,55 @@ export default function Page() {
       cancelButtonText: "Batal",
     });
 
-    if (!confirm.isConfirmed) return;
-
-    const res = await fetch(`/api/pembayaran-hutang/${id}`, {
-      method: "DELETE",
-    });
-
-    if (!res.ok) {
-      Swal.fire("Gagal", "Gagal menghapus", "error");
+    if (!confirm.isConfirmed) {
       return;
     }
 
-    Swal.fire("Berhasil", "Data berhasil dihapus", "success");
+    try {
+      const res = await fetch(`/api/pembayaran-hutang/${id}`, {
+        method: "DELETE",
+      });
 
-    fetchData();
+      const result: unknown = await readJsonSafely(res);
+
+      if (!res.ok) {
+        throw new Error(
+          getErrorMessage(result, "Gagal menghapus pembayaran hutang"),
+        );
+      }
+
+      await Swal.fire(
+        "Berhasil",
+        "Data pembayaran hutang berhasil dihapus",
+        "success",
+      );
+
+      await fetchData();
+    } catch (error: unknown) {
+      console.error("DELETE PEMBAYARAN HUTANG ERROR:", error);
+
+      await Swal.fire(
+        "Gagal",
+        error instanceof Error
+          ? error.message
+          : "Gagal menghapus pembayaran hutang",
+        "error",
+      );
+    }
   }
+
+  /* ============================================================
+   * RENDER
+   * ============================================================ */
 
   return (
     <>
       <div className="max-w-7xl mx-auto">
         <Card title="Pembayaran Hutang">
+          {/* ==================================================
+              TAMBAH
+              ================================================== */}
+
           <div className="flex justify-end mb-4">
             <Button
               onClick={() => router.push("/accounting/pembayaran-hutang/form")}
@@ -92,68 +156,186 @@ export default function Page() {
             </Button>
           </div>
 
+          {/* ==================================================
+              LOADING
+              ================================================== */}
+
           {loading ? (
-            <Loader2 className="animate-spin w-4 h-4" />
+            <div className="flex justify-center py-8">
+              <Loader2 className="animate-spin w-5 h-5" />
+            </div>
+          ) : data.length === 0 ? (
+            /* ==================================================
+               EMPTY
+               ================================================== */
+
+            <div className="py-8 text-center text-sm text-gray-500">
+              Belum ada data pembayaran hutang.
+            </div>
           ) : (
-            <table className="w-full border text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="border px-3 py-2">Tanggal</th>
-                  <th className="border px-3 py-2">Nominal</th>
-                  <th className="border px-3 py-2">PPN</th>
-                  <th className="border px-3 py-2">PPh23</th>
-                  <th className="border px-3 py-2">Total</th>
-                  <th className="border px-3 py-2">Keterangan</th>
-                  <th className="border px-3 py-2">Aksi</th>
-                </tr>
-              </thead>
+            /* ==================================================
+               TABLE
+               ================================================== */
 
-              <tbody>
-                {data.map((item) => (
-                  <tr key={item.id}>
-                    <td className="border px-3 py-2">{item.tanggal}</td>
-                    <td className="border px-3 py-2">
-                      {item.nominal.toLocaleString("id-ID")}
-                    </td>
-                    <td className="border px-3 py-2">
-                      {item.ppn.toLocaleString("id-ID")}
-                    </td>
-                    <td className="border px-3 py-2">
-                      {item.pph23.toLocaleString("id-ID")}
-                    </td>
-                    <td className="border px-3 py-2">
-                      {item.total.toLocaleString("id-ID")}
-                    </td>
-                    <td className="border px-3 py-2">{item.keterangan}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2">Tanggal</th>
 
-                    <td className="border px-3 py-2">
-                      <div className="flex gap-2 justify-center">
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            router.push(
-                              `/accounting/pembayaran-hutang/${item.id}`,
-                            )
-                          }
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
+                    <th className="border px-3 py-2">Nominal</th>
 
-                        <Button
-                          variant="destructive"
-                          onClick={() => handleDelete(item.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </td>
+                    <th className="border px-3 py-2">Total</th>
+
+                    <th className="border px-3 py-2">Keterangan</th>
+
+                    <th className="border px-3 py-2">Aksi</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {data.map((item: PembayaranHutang) => (
+                    <tr key={item.id}>
+                      {/* ==================================
+                            TANGGAL
+                            ================================== */}
+
+                      <td className="border px-3 py-2">{item.tanggal}</td>
+
+                      {/* ==================================
+                            NOMINAL
+                            ================================== */}
+
+                      <td className="border px-3 py-2 text-right">
+                        {formatRupiah(item.nominal)}
+                      </td>
+
+                      {/* ==================================
+                            TOTAL
+                            ================================== */}
+
+                      <td className="border px-3 py-2 text-right font-semibold">
+                        {formatRupiah(item.total)}
+                      </td>
+
+                      {/* ==================================
+                            KETERANGAN
+                            ================================== */}
+
+                      <td className="border px-3 py-2">{item.keterangan}</td>
+
+                      {/* ==================================
+                            AKSI
+                            ================================== */}
+
+                      <td className="border px-3 py-2">
+                        <div className="flex gap-2 justify-center">
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              router.push(
+                                `/accounting/pembayaran-hutang/${item.id}`,
+                              )
+                            }
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+
+                          <Button
+                            variant="destructive"
+                            onClick={() => void handleDelete(item.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
       </div>
     </>
   );
+}
+
+/* ============================================================
+ * NORMALIZE DATA
+ * ============================================================ */
+
+function normalizePembayaranHutangList(value: unknown[]): PembayaranHutang[] {
+  return value
+    .filter(
+      (item: unknown): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null,
+    )
+    .map(
+      (item: Record<string, unknown>): PembayaranHutang => ({
+        id: Number(item.id),
+
+        tanggal: String(item.tanggal ?? ""),
+
+        id_hutang: Number(item.id_hutang),
+
+        nominal: Number(item.nominal ?? 0),
+
+        total: Number(item.total ?? 0),
+
+        keterangan: String(item.keterangan ?? ""),
+      }),
+    )
+    .filter(
+      (item: PembayaranHutang): boolean =>
+        Number.isInteger(item.id) &&
+        item.id > 0 &&
+        Number.isInteger(item.id_hutang) &&
+        item.id_hutang > 0,
+    );
+}
+
+/* ============================================================
+ * FORMAT RUPIAH
+ * ============================================================ */
+
+function formatRupiah(value: number): string {
+  return `Rp ${Number(value ?? 0).toLocaleString("id-ID")}`;
+}
+
+/* ============================================================
+ * SAFE JSON
+ * ============================================================ */
+
+async function readJsonSafely(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+
+    throw new Error(
+      `Server mengembalikan response bukan JSON (${response.status}). ${text.slice(
+        0,
+        200,
+      )}`,
+    );
+  }
+
+  return response.json();
+}
+
+/* ============================================================
+ * ERROR MESSAGE
+ * ============================================================ */
+
+function getErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value === "object" && value !== null && "error" in value) {
+    const error = value.error;
+
+    if (typeof error === "string" && error.trim()) {
+      return error;
+    }
+  }
+
+  return fallback;
 }

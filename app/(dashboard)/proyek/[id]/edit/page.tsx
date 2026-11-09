@@ -36,6 +36,7 @@ export default function EditProyekPage() {
     status: "DRAFT",
     margin_target: 0,
     metode_kontrak: "LUMPSUM",
+    kode_accounting_proyek: null,
   });
 
   useEffect(() => {

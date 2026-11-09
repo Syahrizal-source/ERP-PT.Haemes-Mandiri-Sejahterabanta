@@ -77,7 +77,7 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    fetchData(); // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchData();
   }, []);
 
   if (loading) {
@@ -152,36 +152,12 @@ export default function DashboardPage() {
           data={[1557409998380, 1556050998380]}
         />
 
-        <ChartCard
-          title="Payroll"
-          labels={["Gaji"]}
-          data={[16160000]}
-        />
+        <ChartCard title="Payroll" labels={["Gaji"]} data={[16160000]} />
 
         <ChartCard
           title="Alat Berat"
           labels={["Fuel", "Rental"]}
           data={[137680000000, 8944649000]}
-        />
-
-        <ChartCard
-          title="Produksi TBS (Kg)"
-          labels={[
-            "21/03 BLK-DRI-02",
-            "12/03 BLK-DRI-02",
-            "08/03 BLK-BLM-01",
-          ]}
-          data={[66.5, 60, 1500]}
-        />
-
-        <ChartCard
-          title="Brondolan (Kg)"
-          labels={[
-            "21/03",
-            "12/03",
-            "08/03",
-          ]}
-          data={[30, 30, 240]}
         />
 
         <ChartCard
@@ -202,7 +178,6 @@ export default function DashboardPage() {
           labels={armada.map((a) => a.supir)}
           data={armada.map((a) => a.tagihan)}
         />
-
       </div>
 
       {/* ================= GRID CONTENT ================= */}

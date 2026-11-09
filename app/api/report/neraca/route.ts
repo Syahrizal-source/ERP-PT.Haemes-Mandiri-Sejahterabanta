@@ -22,11 +22,17 @@ const ACCOUNTING_FORMAT = '"Rp" #,##0;[Red]("Rp" #,##0)';
 // };
 
 interface NeracaRow {
+  id_coa: number;
   kode: string;
-
   nama: string;
-
-  saldo: number;
+  tipe: "ASET" | "LIABILITAS" | "EKUITAS";
+  parent_id: number | null;
+  level_coa: number | null;
+  urutan: number | null;
+  kelompok: string | null;
+  sub_kelompok: string | null;
+  saldo: number | string | null;
+  urutan_kelompok: number | null;
 }
 
 interface LedgerDetailRow {
@@ -34,13 +40,8 @@ interface LedgerDetailRow {
   no_bukti: string;
   keterangan: string;
   kode_coa: string;
-  debit: number;
-  kredit: number;
-  business_unit: string | null;
-  region_name: string | null;
-  estate_name: string | null;
-  division_name: string | null;
-  block_code: string | null;
+  debit: number | string | null;
+  kredit: number | string | null;
 }
 
 // interface IncomeSummary {
@@ -375,23 +376,11 @@ async function buildDetailSheet(
       return a.no_bukti.localeCompare(b.no_bukti);
     });
 
-  const firstRow = details[0];
-
-  const division =
-    firstRow?.business_unit === "KEBUN SAWIT"
-      ? (firstRow.region_name ?? "KEBUN SAWIT")
-      : "CORPORATE";
-
-  const section =
-    firstRow?.business_unit === "KEBUN SAWIT"
-      ? "JASA PERKEBUNAN SAWIT"
-      : "JASA CUT & FILL DAN PENGURUGAN TANAH";
-
   createTitle(
     sheet,
     "PT. Haemes Mandiri Sejahterabanta",
-    division,
-    section,
+    "CORPORATE",
+    "JASA CUT & FILL DAN PENGURUGAN TANAH",
     "NERACA",
     periode,
     printDate,
@@ -566,12 +555,34 @@ export async function GET(): Promise<Response> {
 
     const { data, error } = await db
       .from("v_neraca")
-      .select("*")
+      .select(
+        `
+      id_coa,
+      kode,
+      nama,
+      tipe,
+      parent_id,
+      level_coa,
+      urutan,
+      kelompok,
+      sub_kelompok,
+      saldo,
+      urutan_kelompok
+    `,
+      )
+      .order("urutan_kelompok", {
+        ascending: true,
+      })
+      .order("urutan", {
+        ascending: true,
+      })
       .order("kode", {
         ascending: true,
       });
 
     if (error) {
+      console.error("[NERACA VIEW ERROR]", error);
+
       return NextResponse.json(
         {
           error: error.message,
@@ -582,41 +593,63 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    const rows: NeracaRow[] = data ?? [];
+    const rows: NeracaRow[] = (data ?? []) as NeracaRow[];
 
     /* =========================
-       GET LEDGER
-    ========================= */
+       GET LEDGER DETAIL
+       =========================
 
-    const {
-      data: ledgerData,
+       Jangan memakai nested relationship PostgREST:
+       jurnal_detail -> coa
+       jurnal_detail -> jurnal -> periode
 
-      error: ledgerError,
-    } = await db
-      .from("v_general_ledger_report")
-      .select(
-        `
-    tanggal,
-    no_bukti,
-    keterangan,
-    kode_coa,
-    debit,
-    kredit,
-    business_unit,
-    region_name,
-    estate_name,
-    division_name,
-    block_code
-`,
-      )
-      .order("tanggal", {
+       Schema cache saat ini tidak menyediakan relationship
+       yang dibutuhkan oleh nested select tersebut.
+
+       Data diambil terpisah:
+       jurnal -> jurnal_detail -> coa
+
+       Sumber angka tetap jurnal OPEN.
+       Tidak ada UPDATE transaksi.
+    */
+
+    interface JurnalHeaderRow {
+      id_jurnal: number;
+      tanggal: string;
+      no_bukti: string;
+      keterangan: string | null;
+      is_posted: boolean;
+      id_periode: number;
+    }
+
+    interface JurnalDetailDbRow {
+      id_jurnal: number;
+      id_coa: number;
+      debit: number | string | null;
+      kredit: number | string | null;
+    }
+
+    interface CoaKodeRow {
+      id_coa: number;
+      kode: string;
+    }
+
+    const { data: openPeriodData, error: openPeriodError } = await db
+      .from("periode")
+      .select("id_periode")
+      .eq("status", "OPEN")
+      .order("id_periode", {
         ascending: true,
-      });
+      })
+      .limit(1)
+      .maybeSingle();
 
-    if (ledgerError) {
+    if (openPeriodError) {
+      console.error("[NERACA OPEN PERIOD ERROR]", openPeriodError);
+
       return NextResponse.json(
         {
-          error: ledgerError.message,
+          error: openPeriodError.message,
         },
         {
           status: 500,
@@ -624,81 +657,256 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    const ledgerRows: LedgerDetailRow[] = (ledgerData ??
-      []) as LedgerDetailRow[];
+    const openPeriodId = openPeriodData?.id_periode;
+
+    if (openPeriodId === null || openPeriodId === undefined) {
+      return NextResponse.json(
+        {
+          error: "Tidak ditemukan periode dengan status OPEN.",
+        },
+        {
+          status: 500,
+        },
+      );
+    }
 
     /* =========================
-       GROUPING
-    ========================= */
+       1. JURNAL OPEN
+       ========================= */
+
+    const { data: jurnalDataRaw, error: jurnalError } = await db
+      .from("jurnal")
+      .select(
+        `
+          id_jurnal,
+          tanggal,
+          no_bukti,
+          keterangan,
+          is_posted,
+          id_periode
+        `,
+      )
+      .eq("id_periode", openPeriodId)
+      .eq("is_posted", true)
+      .not("no_bukti", "like", "CLS-%")
+      .not("no_bukti", "like", "CLOSE-%")
+      .not("no_bukti", "like", "OPEN-%")
+      .not("no_bukti", "like", "REV-%")
+      .order("tanggal", {
+        ascending: true,
+      })
+      .order("no_bukti", {
+        ascending: true,
+      });
+
+    if (jurnalError) {
+      console.error("[NERACA JURNAL ERROR]", jurnalError);
+
+      return NextResponse.json(
+        {
+          error: jurnalError.message,
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    const jurnalRows: JurnalHeaderRow[] = (jurnalDataRaw ??
+      []) as JurnalHeaderRow[];
+
+    /* =========================
+       2. JURNAL DETAIL
+       ========================= */
+
+    const jurnalIds = jurnalRows.map(
+      (item: JurnalHeaderRow): number => item.id_jurnal,
+    );
+
+    let jurnalDetailRows: JurnalDetailDbRow[] = [];
+
+    if (jurnalIds.length > 0) {
+      const { data: jurnalDetailDataRaw, error: jurnalDetailError } = await db
+        .from("jurnal_detail")
+        .select(
+          `
+            id_jurnal,
+            id_coa,
+            debit,
+            kredit
+          `,
+        )
+        .in("id_jurnal", jurnalIds);
+
+      if (jurnalDetailError) {
+        console.error("[NERACA JURNAL DETAIL ERROR]", jurnalDetailError);
+
+        return NextResponse.json(
+          {
+            error: jurnalDetailError.message,
+          },
+          {
+            status: 500,
+          },
+        );
+      }
+
+      jurnalDetailRows = (jurnalDetailDataRaw ?? []) as JurnalDetailDbRow[];
+    }
+
+    /* =========================
+       3. COA
+       =========================
+
+       Sengaja query public.coa terpisah.
+       Tidak ada:
+       coa:coa!inner(...)
+    */
+
+    const coaIds = Array.from(
+      new Set(
+        jurnalDetailRows.map((item: JurnalDetailDbRow): number => item.id_coa),
+      ),
+    );
+
+    const coaMap = new Map<number, string>();
+
+    if (coaIds.length > 0) {
+      const { data: coaDataRaw, error: coaError } = await db
+        .from("coa")
+        .select(
+          `
+            id_coa,
+            kode
+          `,
+        )
+        .in("id_coa", coaIds);
+
+      if (coaError) {
+        console.error("[NERACA COA ERROR]", coaError);
+
+        return NextResponse.json(
+          {
+            error: coaError.message,
+          },
+          {
+            status: 500,
+          },
+        );
+      }
+
+      const coaRows: CoaKodeRow[] = (coaDataRaw ?? []) as CoaKodeRow[];
+
+      for (const coa of coaRows) {
+        coaMap.set(coa.id_coa, coa.kode);
+      }
+    }
+
+    /* =========================
+       4. MAP JURNAL
+       ========================= */
+
+    const jurnalMap = new Map<number, JurnalHeaderRow>();
+
+    for (const jurnal of jurnalRows) {
+      jurnalMap.set(jurnal.id_jurnal, jurnal);
+    }
+
+    /* =========================
+       5. LEDGER FINAL
+       ========================= */
+
+    const ledgerRows: LedgerDetailRow[] = [];
+
+    for (const detail of jurnalDetailRows) {
+      const jurnal = jurnalMap.get(detail.id_jurnal);
+
+      const kodeCoa = coaMap.get(detail.id_coa);
+
+      if (!jurnal || !kodeCoa) {
+        continue;
+      }
+
+      ledgerRows.push({
+        tanggal: jurnal.tanggal,
+        no_bukti: jurnal.no_bukti,
+        keterangan: jurnal.keterangan ?? "",
+        kode_coa: kodeCoa,
+        debit: detail.debit,
+        kredit: detail.kredit,
+      });
+    }
+
+    ledgerRows.sort((a: LedgerDetailRow, b: LedgerDetailRow): number => {
+      const dateDifference =
+        new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime();
+
+      if (dateDifference !== 0) {
+        return dateDifference;
+      }
+
+      return a.no_bukti.localeCompare(b.no_bukti);
+    });
+
+    /* =========================
+   GROUPING
+   =========================
+   Mengikuti langsung struktur
+   dari public.v_neraca.
+   ========================= */
 
     const asetLancar = rows.filter(
       (item): boolean =>
-        item.kode.startsWith("1") &&
-        !item.kode.startsWith("15") &&
-        (item.nama.includes("Kas") ||
-          item.nama.includes("Bank") ||
-          item.nama.includes("Piutang") ||
-          item.nama.includes("Persediaan") ||
-          item.nama.includes("PPN") ||
-          item.nama.includes("Uang Muka")),
+        item.tipe === "ASET" && item.kelompok === "ASET_LANCAR",
     );
 
     const asetTetap = rows.filter(
       (item): boolean =>
-        item.kode.startsWith("15") ||
-        item.nama.includes("Aset") ||
-        item.nama.includes("Mesin") ||
-        item.nama.includes("Bangunan") ||
-        item.nama.includes("Kendaraan") ||
-        item.nama.includes("Akumulasi"),
+        item.tipe === "ASET" && item.kelompok === "ASET_TIDAK_LANCAR",
     );
 
-    const aset = rows.filter(
-      (item): boolean => item.kode.startsWith("1") && item.kode !== "10000",
+    const aset = rows.filter((item): boolean => item.tipe === "ASET");
+
+    const kewajiban = rows.filter(
+      (item): boolean => item.tipe === "LIABILITAS",
     );
 
-    const kewajiban = rows.filter((item): boolean => item.kode.startsWith("2"));
+    const ekuitas = rows.filter((item): boolean => item.tipe === "EKUITAS");
 
-    const ekuitas = rows.filter((item): boolean => item.kode.startsWith("3"));
+    /* =========================
+   TOTAL ASET
+   ========================= */
 
     const totalAset: number = aset.reduce(
-      (sum: number, item): number => sum + Math.abs(Number(item.saldo ?? 0)),
+      (sum: number, item): number => sum + Number(item.saldo ?? 0),
       0,
     );
+
+    /* =========================
+   TOTAL KEWAJIBAN
+   ========================= */
 
     const totalKewajiban: number = kewajiban.reduce(
-      (sum: number, item): number => sum + Math.abs(Number(item.saldo ?? 0)),
+      (sum: number, item): number => sum + Number(item.saldo ?? 0),
       0,
     );
 
-    const pendapatan: number = rows
-      .filter((item): boolean => item.kode.startsWith("4"))
-      .reduce(
-        (sum: number, item): number => sum + Math.abs(Number(item.saldo ?? 0)),
-        0,
-      );
-    const beban: number = rows
-      .filter(
-        (item): boolean =>
-          item.kode.startsWith("5") ||
-          item.kode.startsWith("6") ||
-          item.kode.startsWith("7"),
-      )
-      .reduce(
-        (sum: number, item): number => sum + Math.abs(Number(item.saldo ?? 0)),
-        0,
-      );
+    /* =========================
+   TOTAL EKUITAS
+   ========================= */
 
-    const labaBersih: number = pendapatan - beban;
+    const totalEkuitas: number = ekuitas.reduce(
+      (sum: number, item): number => sum + Number(item.saldo ?? 0),
+      0,
+    );
 
-    const totalEkuitas: number =
-      ekuitas.reduce(
-        (sum: number, item): number => sum + Math.abs(Number(item.saldo ?? 0)),
-        0,
-      ) + Number(labaBersih);
+    /* =========================
+   TOTAL PASIVA
+   ========================= */
 
-    const totalPasiva: number =
-      Math.abs(totalKewajiban) + Math.abs(totalEkuitas);
+    const totalPasiva: number = totalKewajiban + totalEkuitas;
+
+    const balanceCheck: number = totalAset - totalPasiva;
 
     /* =========================
        WORKBOOK
@@ -770,12 +978,9 @@ export async function GET(): Promise<Response> {
           underline: true,
         };
 
-        const corporateSaldo =
-          Number(row.saldo) < 0
-            ? Math.abs(Number(row.saldo))
-            : Number(row.saldo);
+        const saldo = Number(row.saldo ?? 0);
 
-        sheet.getCell(`C${currentRow}`).value = corporateSaldo;
+        sheet.getCell(`C${currentRow}`).value = saldo;
 
         sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
@@ -863,6 +1068,21 @@ export async function GET(): Promise<Response> {
 
     sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
+    currentRow += 2;
+
+    /* =========================
+       BALANCE CHECK
+       ASET - (KEWAJIBAN + EKUITAS)
+    ========================= */
+
+    sheet.getCell(`B${currentRow}`).value = "BALANCE CHECK";
+    sheet.getCell(`C${currentRow}`).value = balanceCheck;
+
+    applyTotalStyle(sheet.getCell(`B${currentRow}`));
+    applyTotalStyle(sheet.getCell(`C${currentRow}`));
+
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
     /* =========================
        QR CODE
     ========================= */
@@ -872,7 +1092,7 @@ export async function GET(): Promise<Response> {
 
       sumber_modul: "NERACA",
 
-      nilai_transaksi: totalPasiva,
+      nilai_transaksi: balanceCheck,
 
       tanggal_transaksi: new Date().toISOString(),
     });
@@ -939,9 +1159,19 @@ export async function GET(): Promise<Response> {
       },
     });
   } catch (error: unknown) {
+    console.error("[API NERACA ERROR]", error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Terjadi kesalahan saat membuat laporan neraca.";
+
+    const stack = error instanceof Error ? error.stack : undefined;
+
     return NextResponse.json(
       {
-        error: (error as Error).message,
+        error: message,
+        stack,
       },
       {
         status: 500,

@@ -33,7 +33,7 @@ export async function GET(): Promise<NextResponse> {
 
   const buffer = await buildPendapatanExcelWithQR(rows);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

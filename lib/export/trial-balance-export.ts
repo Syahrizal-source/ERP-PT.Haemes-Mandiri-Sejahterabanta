@@ -42,10 +42,10 @@ export async function buildTrialBalanceExcelWithQR(
   };
 
   const hash = generateReportHash(metadata);
-  const qrBuffer = await QRCode.toBuffer(hash);
+  const qrBuffer = await QRCode.toDataURL(hash);
 
   const imageId = workbook.addImage({
-    buffer: qrBuffer,
+    base64: qrBuffer.replace(/^data:image\/png;base64,/, ""),
     extension: "png",
   });
 

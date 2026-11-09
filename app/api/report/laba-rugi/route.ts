@@ -1,54 +1,300 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import * as QRCode from "qrcode";
+import QRCode from "qrcode";
 
 import { db } from "@/lib/supabase/server";
 import { generateQRCodeValue } from "@/lib/helpers/qrcode";
 
-/* =========================
+/* =========================================================
    TYPES
-========================= */
+========================================================= */
 
-interface LabaRugiRow {
-  kode: string;
-  nama: string;
-  nilai: number;
-  kategori_laporan?: string | null;
-  sub_kategori?: string | null;
-  is_header?: boolean | null;
-}
-
-interface LedgerDetailRow {
+interface LabaRugiDetailRow {
+  id_jurnal: number;
   tanggal: string;
   no_bukti: string;
   keterangan: string;
+  sumber: string | null;
+  modul: string | null;
+  ref_id: string | null;
+  id_detail: number;
+  id_coa: number;
+  debit: number | string | null;
+  kredit: number | string | null;
   kode_coa: string;
+  nama_coa: string;
+  tipe_coa: string;
+  normal_balance: string | null;
+  kategori_laporan: string | null;
+  sub_kategori: string | null;
+  kelompok_utama: string | null;
+  kelompok_detail: string | null;
+  level_coa: number | null;
+  parent_id: number | null;
+}
+
+interface JournalDetailProjectRow {
+  id_detail: number;
+  id_proyek: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  kode_proyek: string;
+  nama_proyek: string;
+  customer: string | null;
+}
+
+interface JurnalReportRow {
+  id_jurnal: number;
+  tanggal: string;
+  no_bukti: string;
+  keterangan: string;
+  sumber: string | null;
+  modul: string | null;
+  ref_id: string | null;
+  id_periode: number;
+}
+
+interface PeriodeReportRow {
+  id_periode: number;
+  status: string;
+}
+
+interface LabaRugiViewRow {
+  id_jurnal: number;
+  tanggal: string;
+  no_bukti: string;
+  sumber: string | null;
+  modul: string | null;
+  ref_id: string | null;
+  id_detail: number;
+  id_coa: number;
+  kode_coa: string;
+  nama_coa: string;
+  tipe_coa: string;
+  kategori_laporan: string | null;
+  sub_kategori: string | null;
+  kelompok_utama: string | null;
+  kelompok_detail: string | null;
+  debit: number | string | null;
+  kredit: number | string | null;
+  nilai_laba_rugi: number | string | null;
+  kelompok_laba_rugi: string;
+}
+
+interface AggregatedCoa {
+  id_coa: number;
+  kode_coa: string;
+  nama_coa: string;
+  tipe_coa: string;
+  kategori_laporan: string | null;
+  sub_kategori: string | null;
+  kelompok_utama: string | null;
+  kelompok_detail: string | null;
+  kelompok_laba_rugi: string;
+  total_debit: number;
+  total_kredit: number;
+  nilai_laba_rugi: number;
+}
+
+interface ReportLine {
+  id_coa: number;
+  kode: string;
+  nama: string;
+  tipe: string;
+  saldo: number;
+  kategori_laporan: string | null;
+  sub_kategori: string | null;
+  kelompok_utama: string | null;
+  kelompok_detail: string | null;
+  urutan: number;
+}
+
+interface ReportSection {
+  title: string;
+  rows: ReportLine[];
+  total: number;
+}
+
+interface ReportTotals {
+  pendapatanOperasionalJurnal: number;
+  biayaPenjualan: number;
+  labaKotor: number;
+  penghasilanLain: number;
+  bebanAdministratif: number;
+  bebanLain: number;
+  bebanPajakPenghasilan: number;
+  labaSebelumPajak: number;
+  labaBersih: number;
+}
+
+interface PendapatanProyekSourceRow {
+  id: number;
+  id_proyek: string;
+  tanggal: string;
+  no_bukti: string;
+  jenis_transaksi: string;
+  keterangan: string | null;
+  nilai_pendapatan: number | string | null;
+  jenis_pajak: string | null;
+  tarif_pajak: number | string | null;
+  nilai_pajak: number | string | null;
+  nilai_bersih: number | string | null;
+  id_jurnal: number | null;
+}
+
+interface PendapatanProyekRow {
+  tanggal: string;
+  id_jurnal: number;
+  no_bukti: string;
+  keterangan: string;
+  id_detail: number;
+  id_proyek: string | null;
+  kode_proyek: string | null;
+  nama_proyek: string | null;
+  customer: string | null;
   debit: number;
   kredit: number;
-  business_unit: string;
-  region_name: string | null;
-  estate_name: string | null;
-  division_name: string | null;
-  block_code: string | null;
+  pendapatan: number;
+  nilai_pajak: number;
+  pendapatan_bersih: number;
 }
 
-/* =========================
-   FORMAT SHEET NAME
-========================= */
-
-function sanitizeSheetName(name: string): string {
-  return name.replace(/[\\/*?:[\]]/g, "").substring(0, 31);
+interface AsetReportRow {
+  kategori_aset: string | null;
+  nilai_perolehan: number | string | null;
+  akumulasi_depresiasi: number | string | null;
+  depresiasi_bulanan: number | string | null;
+  nilai_buku: number | string | null;
 }
 
-function formatSheetName(kode: string, nama: string): string {
-  return sanitizeSheetName(`${kode}-${nama}`);
+interface AsetReportSummary {
+  jumlahAset: number;
+  nilaiPerolehan: number;
+  akumulasiDepresiasi: number;
+  depresiasiBulanan: number;
+  nilaiBuku: number;
 }
+
+/* =========================================================
+   CONSTANT
+========================================================= */
+
+/**
+ * Data lama tidak dipakai.
+ *
+ * Cut-off data baru yang sudah divalidasi:
+ * 11-08-2026
+ */
+const DEFAULT_START_DATE = "2026-08-11";
+
+/**
+ * Periode validasi terakhir yang sebelumnya digunakan.
+ * Bisa diganti melalui query parameter:
+ *
+ * ?tanggal_mulai=YYYY-MM-DD
+ * &tanggal_selesai=YYYY-MM-DD
+ */
+const DEFAULT_END_DATE = "2026-09-19";
+
+const COMPANY_NAME = "PT. Haemes Mandiri Sejahterabanta";
+
+const REPORT_SECTION = "JASA CUT & FILL DAN PENGURUGAN TANAH";
 
 const ACCOUNTING_FORMAT = '"Rp" #,##0;[Red]("Rp" #,##0)';
 
-/* =========================
-   HEADER STYLE
-========================= */
+/* =========================================================
+   BASIC HELPERS
+========================================================= */
+
+function toNumber(value: number | string | null | undefined): number {
+  const result = Number(value ?? 0);
+
+  return Number.isFinite(result) ? result : 0;
+}
+
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase();
+}
+
+function sanitizeSheetName(name: string): string {
+  const sanitized = name.replace(/[\\/*?:[\]]/g, "").trim();
+
+  return sanitized.substring(0, 31) || "Detail";
+}
+
+function formatSheetName(kode: string, nama: string, idCoa: number): string {
+  return sanitizeSheetName(`${kode}-${nama}-${idCoa}`);
+}
+
+function formatDateIndonesia(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatPrintDate(): string {
+  return new Date().toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/* =========================================================
+   DATE RANGE
+========================================================= */
+
+function getReportDateRange(searchParams: URLSearchParams): {
+  tanggalMulai: string;
+  tanggalSelesai: string;
+} {
+  const tanggalMulaiParam = searchParams.get("tanggal_mulai")?.trim();
+
+  const tanggalSelesaiParam = searchParams.get("tanggal_selesai")?.trim();
+
+  const tanggalMulai =
+    tanggalMulaiParam && /^\d{4}-\d{2}-\d{2}$/.test(tanggalMulaiParam)
+      ? tanggalMulaiParam
+      : DEFAULT_START_DATE;
+
+  const tanggalSelesai =
+    tanggalSelesaiParam && /^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesaiParam)
+      ? tanggalSelesaiParam
+      : DEFAULT_END_DATE;
+
+  return {
+    tanggalMulai,
+    tanggalSelesai,
+  };
+}
+
+/** Menghasilkan batas akhir eksklusif agar seluruh transaksi pada tanggal akhir ikut terambil. */
+function getNextDate(dateValue: string): string {
+  const date = new Date(`${dateValue}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Tanggal laporan tidak valid: ${dateValue}`);
+  }
+
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+/* =========================================================
+   EXCEL STYLE
+========================================================= */
 
 function applyHeaderStyle(cell: ExcelJS.Cell): void {
   cell.font = {
@@ -87,10 +333,6 @@ function applyHeaderStyle(cell: ExcelJS.Cell): void {
   };
 }
 
-/* =========================
-   SECTION STYLE
-========================= */
-
 function applySectionStyle(cell: ExcelJS.Cell): void {
   cell.font = {
     bold: true,
@@ -104,10 +346,6 @@ function applySectionStyle(cell: ExcelJS.Cell): void {
     },
   };
 }
-
-/* =========================
-   TOTAL STYLE
-========================= */
 
 function applyTotalStyle(cell: ExcelJS.Cell): void {
   cell.font = {
@@ -132,20 +370,19 @@ function applyTotalStyle(cell: ExcelJS.Cell): void {
   };
 }
 
-/* =========================
+/* =========================================================
    TITLE
-========================= */
+========================================================= */
 
 function createTitle(
   sheet: ExcelJS.Worksheet,
   companyTitle: string,
-  division: string,
   section: string,
   reportTitle: string,
   periode: string,
   printDate: string,
 ): void {
-  sheet.mergeCells("A1:I1");
+  sheet.mergeCells("A1:J1");
 
   sheet.getCell("A1").value = reportTitle;
 
@@ -158,7 +395,7 @@ function createTitle(
     horizontal: "center",
   };
 
-  sheet.mergeCells("A2:I2");
+  sheet.mergeCells("A2:J2");
 
   sheet.getCell("A2").value = companyTitle;
 
@@ -171,7 +408,7 @@ function createTitle(
     horizontal: "center",
   };
 
-  sheet.mergeCells("A3:I3");
+  sheet.mergeCells("A3:J3");
 
   sheet.getCell("A3").value = section;
 
@@ -179,12 +416,15 @@ function createTitle(
     horizontal: "center",
   };
 
-  sheet.getCell("A5").value = `DIVISI : ${division}`;
-  sheet.getCell("A6").value = `PERIODE : ${periode}`;
-  sheet.getCell("A7").value = `TANGGAL CETAK : ${printDate}`;
-  sheet.getCell("A8").value = "MATA UANG : Rupiah (IDR)";
-  sheet.mergeCells("A9:I9");
-  const divider = sheet.getCell("A9");
+  sheet.getCell("A5").value = `PERIODE : ${periode}`;
+
+  sheet.getCell("A6").value = `TANGGAL CETAK : ${printDate}`;
+
+  sheet.getCell("A7").value = "MATA UANG : Rupiah (IDR)";
+
+  sheet.mergeCells("A8:J8");
+
+  const divider = sheet.getCell("A8");
 
   divider.border = {
     bottom: {
@@ -201,9 +441,9 @@ function createTitle(
   };
 }
 
-/* =========================
+/* =========================================================
    SIGNATURE
-========================= */
+========================================================= */
 
 function addSignature(sheet: ExcelJS.Worksheet, row: number): void {
   sheet.getCell(`B${row}`).value = "Direksi";
@@ -222,14 +462,14 @@ function addSignature(sheet: ExcelJS.Worksheet, row: number): void {
 
   sheet.getCell(`H${row + 4}`).value = "(_________________)";
 
-  sheet.getCell(`B${row + 5}`).value = "PT. Haemes Mandiri Sejahterabanta";
+  sheet.getCell(`B${row + 5}`).value = COMPANY_NAME;
 
   sheet.getCell(`H${row + 5}`).value = "Finance Manager";
 }
 
-/* =========================
-   SAFE HYPERLINK
-========================= */
+/* =========================================================
+   INTERNAL EXCEL HYPERLINK
+========================================================= */
 
 function setInternalHyperlink(
   cell: ExcelJS.Cell,
@@ -251,38 +491,805 @@ function setInternalHyperlink(
   };
 }
 
-/* =========================
-   IS HEADER
-========================= */
+/* =========================================================
+   AGGREGATE PERIOD COA
+   Sumber klasifikasi dan nilai laba rugi:
+   public.v_laba_rugi_report_detail
+========================================================= */
 
-function isHeaderAccount(row: LabaRugiRow): boolean {
-  return (
-    row.is_header === true ||
-    row.kode.endsWith("000") ||
-    Number(row.nilai) === 0
+function aggregateCoaRows(detailRows: LabaRugiViewRow[]): AggregatedCoa[] {
+  const map = new Map<number, AggregatedCoa>();
+
+  for (const item of detailRows) {
+    const idCoa = Number(item.id_coa);
+
+    if (!Number.isInteger(idCoa) || idCoa <= 0) {
+      continue;
+    }
+
+    const debit = toNumber(item.debit);
+    const kredit = toNumber(item.kredit);
+    const nilaiLabaRugi = toNumber(item.nilai_laba_rugi);
+
+    const existing = map.get(idCoa);
+
+    if (existing) {
+      existing.total_debit += debit;
+      existing.total_kredit += kredit;
+      existing.nilai_laba_rugi += nilaiLabaRugi;
+      continue;
+    }
+
+    map.set(idCoa, {
+      id_coa: idCoa,
+      kode_coa: item.kode_coa,
+      nama_coa: item.nama_coa,
+      tipe_coa: item.tipe_coa,
+      kategori_laporan: item.kategori_laporan,
+      sub_kategori: item.sub_kategori,
+      kelompok_utama: item.kelompok_utama,
+      kelompok_detail: item.kelompok_detail,
+      kelompok_laba_rugi: item.kelompok_laba_rugi,
+      total_debit: debit,
+      total_kredit: kredit,
+      nilai_laba_rugi: nilaiLabaRugi,
+    });
+  }
+
+  return Array.from(map.values()).sort((a, b): number => a.id_coa - b.id_coa);
+}
+
+/* =========================================================
+   BUILD REPORT LINE
+========================================================= */
+
+function toReportLine(row: AggregatedCoa): ReportLine {
+  return {
+    id_coa: row.id_coa,
+    kode: row.kode_coa,
+    nama: row.nama_coa,
+    tipe: row.tipe_coa,
+    saldo: row.nilai_laba_rugi,
+    kategori_laporan: row.kategori_laporan,
+    sub_kategori: row.sub_kategori,
+    kelompok_utama: row.kelompok_utama,
+    kelompok_detail: row.kelompok_detail,
+    urutan: row.id_coa,
+  };
+}
+
+/* =========================================================
+   BUILD REPORT SECTIONS
+   Klasifikasi sepenuhnya mengikuti:
+   public.v_laba_rugi_report_detail.kelompok_laba_rugi
+========================================================= */
+
+function buildReportSections(coaRows: AggregatedCoa[]): {
+  pendapatanProyek: ReportSection;
+  penghasilanLain: ReportSection;
+  biayaPenjualan: ReportSection;
+  bebanAdministratif: ReportSection;
+  bebanLain: ReportSection;
+  pajakPenghasilan: ReportSection;
+} {
+  const onlyNonZero = (rows: ReportLine[]): ReportLine[] =>
+    rows.filter((row): boolean => Math.abs(row.saldo) > 0.000001);
+
+  const rowsByGroup = (kelompok: string): ReportLine[] =>
+    onlyNonZero(
+      coaRows
+        .filter(
+          (row): boolean => normalizeText(row.kelompok_laba_rugi) === kelompok,
+        )
+        .map(toReportLine),
+    ).sort((a, b): number => a.urutan - b.urutan);
+
+  const sumRows = (rows: ReportLine[]): number =>
+    rows.reduce((total, row): number => total + row.saldo, 0);
+
+  const pendapatanProyekRows = rowsByGroup("PENDAPATAN_OPERASIONAL");
+
+  const penghasilanLainRows = rowsByGroup("PENGHASILAN_LAIN");
+
+  const biayaPenjualanRows = rowsByGroup("BIAYA_PENJUALAN");
+
+  const bebanAdministratifRows = rowsByGroup("BEBAN_ADMINISTRATIF");
+
+  const bebanLainRows = rowsByGroup("BEBAN_LAIN");
+
+  const pajakPenghasilanRows = rowsByGroup("BEBAN_PAJAK_PENGHASILAN");
+
+  return {
+    pendapatanProyek: {
+      title: "Pendapatan Proyek",
+      rows: pendapatanProyekRows,
+      total: sumRows(pendapatanProyekRows),
+    },
+
+    penghasilanLain: {
+      title: "Penghasilan Lain",
+      rows: penghasilanLainRows,
+      total: sumRows(penghasilanLainRows),
+    },
+
+    biayaPenjualan: {
+      title: "Biaya Penjualan",
+      rows: biayaPenjualanRows,
+      total: sumRows(biayaPenjualanRows),
+    },
+
+    bebanAdministratif: {
+      title: "Beban Administratif",
+      rows: bebanAdministratifRows,
+      total: sumRows(bebanAdministratifRows),
+    },
+
+    bebanLain: {
+      title: "Beban Lain",
+      rows: bebanLainRows,
+      total: sumRows(bebanLainRows),
+    },
+
+    pajakPenghasilan: {
+      title: "Beban Pajak Penghasilan",
+      rows: pajakPenghasilanRows,
+      total: sumRows(pajakPenghasilanRows),
+    },
+  };
+}
+
+/* =========================================================
+   PROJECT RELATION
+========================================================= */
+
+async function getProjectRelations(detailRows: LabaRugiDetailRow[]): Promise<{
+  projectLinks: Map<number, string | null>;
+  projects: ProjectRow[];
+}> {
+  const revenueDetailIds = detailRows
+    .filter(
+      (item): boolean =>
+        normalizeText(item.tipe_coa) === "PENDAPATAN" &&
+        normalizeText(item.kelompok_utama) === "PENDAPATAN_OPERASIONAL",
+    )
+    .map((item): number => Number(item.id_detail))
+    .filter((id): boolean => Number.isInteger(id) && id > 0);
+
+  const uniqueDetailIds = Array.from(new Set(revenueDetailIds));
+
+  const projectLinks = new Map<number, string | null>();
+
+  const projects: ProjectRow[] = [];
+
+  if (uniqueDetailIds.length === 0) {
+    return {
+      projectLinks,
+      projects,
+    };
+  }
+
+  const { data: journalDetailData, error: journalDetailError } = await db
+    .from("jurnal_detail")
+    .select(
+      `
+        id_detail,
+        id_proyek
+      `,
+    )
+    .in("id_detail", uniqueDetailIds);
+
+  if (journalDetailError) {
+    throw new Error(
+      `Gagal mengambil relasi proyek jurnal_detail: ${journalDetailError.message}`,
+    );
+  }
+
+  const journalProjectRows = (journalDetailData ??
+    []) as JournalDetailProjectRow[];
+
+  for (const row of journalProjectRows) {
+    projectLinks.set(Number(row.id_detail), row.id_proyek);
+  }
+
+  const projectIds = Array.from(
+    new Set(
+      journalProjectRows
+        .map((row): string | null => row.id_proyek)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  );
+
+  if (projectIds.length === 0) {
+    return {
+      projectLinks,
+      projects,
+    };
+  }
+
+  const { data: projectData, error: projectError } = await db
+    .from("proyek_master")
+    .select(
+      `
+        id,
+        kode_proyek,
+        nama_proyek,
+        customer
+      `,
+    )
+    .in("id", projectIds);
+
+  if (projectError) {
+    throw new Error(`Gagal mengambil proyek_master: ${projectError.message}`);
+  }
+
+  projects.push(...((projectData ?? []) as ProjectRow[]));
+
+  return {
+    projectLinks,
+    projects,
+  };
+}
+
+/* =========================================================
+   BUILD PROJECT REVENUE ROWS
+========================================================= */
+
+async function getPendapatanProyekSource(
+  detailRows: LabaRugiDetailRow[],
+  projectLinks: Map<number, string | null>,
+): Promise<Map<number, PendapatanProyekSourceRow>> {
+  const revenueRows = detailRows.filter(
+    (item): boolean =>
+      normalizeText(item.tipe_coa) === "PENDAPATAN" &&
+      normalizeText(item.kelompok_utama) === "PENDAPATAN_OPERASIONAL",
+  );
+
+  const revenueJournalIds = Array.from(
+    new Set(
+      revenueRows
+        .map((item): number => Number(item.id_jurnal))
+        .filter((id): boolean => Number.isInteger(id) && id > 0),
+    ),
+  );
+
+  const sourceMap = new Map<number, PendapatanProyekSourceRow>();
+
+  if (revenueJournalIds.length === 0) {
+    return sourceMap;
+  }
+
+  /*
+   * Jangan hanya mencari berdasarkan id_jurnal.
+   * Data historis yang sudah diposting bisa memiliki id_jurnal yang
+   * berbeda/null pada public.pendapatan_proyek, sementara voucher,
+   * proyek, tanggal, dan nilai transaksi tetap merupakan referensi
+   * yang valid untuk mencocokkan sumber Pendapatan Bersih.
+   */
+  const { data, error } = await db
+    .from("pendapatan_proyek")
+    .select(
+      `
+        id,
+        id_proyek,
+        tanggal,
+        no_bukti,
+        jenis_transaksi,
+        keterangan,
+        nilai_pendapatan,
+        jenis_pajak,
+        tarif_pajak,
+        nilai_pajak,
+        nilai_bersih,
+        id_jurnal
+      `,
+    )
+    .order("tanggal", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw new Error(
+      `Gagal mengambil sumber pendapatan proyek dari public.pendapatan_proyek: ${error.message}`,
+    );
+  }
+
+  const sourceRows = (data ?? []) as PendapatanProyekSourceRow[];
+
+  const sourceByJournalId = new Map<number, PendapatanProyekSourceRow>();
+  const sourceByVoucher = new Map<string, PendapatanProyekSourceRow[]>();
+
+  for (const row of sourceRows) {
+    if (row.id_jurnal !== null && Number.isInteger(Number(row.id_jurnal))) {
+      sourceByJournalId.set(Number(row.id_jurnal), row);
+    }
+
+    const voucher = normalizeText(row.no_bukti);
+
+    if (voucher.length > 0) {
+      const existing = sourceByVoucher.get(voucher) ?? [];
+      existing.push(row);
+      sourceByVoucher.set(voucher, existing);
+    }
+  }
+
+  for (const item of revenueRows) {
+    const idJurnal = Number(item.id_jurnal);
+
+    if (!Number.isInteger(idJurnal) || idJurnal <= 0) {
+      continue;
+    }
+
+    /* 1. Prioritas pertama: relasi id_jurnal langsung. */
+    const directSource = sourceByJournalId.get(idJurnal);
+
+    if (directSource) {
+      sourceMap.set(idJurnal, directSource);
+      continue;
+    }
+
+    /* 2. Prioritas kedua: voucher/no_bukti. */
+    const voucherCandidates =
+      sourceByVoucher.get(normalizeText(item.no_bukti)) ?? [];
+
+    if (voucherCandidates.length === 1) {
+      sourceMap.set(idJurnal, voucherCandidates[0]);
+      continue;
+    }
+
+    /*
+     * 3. Prioritas ketiga: proyek + nilai bruto.
+     *
+     * Jangan mensyaratkan tanggal sama. Data historis yang sudah diposting
+     * dapat memiliki tanggal jurnal berbeda dengan tanggal record pada
+     * public.pendapatan_proyek.
+     *
+     * Contoh data yang diberikan:
+     * - jurnal 611: 11/08/2026, PRJ-008, bruto 60.000.000
+     * - pendapatan_proyek: 23/09/2026, INV-PRJ008-002, PRJ-008,
+     *   bruto 60.000.000, bersih 58.410.000
+     *
+     * Keduanya tetap dipasangkan karena proyek + nilai bruto identik.
+     */
+    const idProyekJurnal = projectLinks.get(Number(item.id_detail)) ?? null;
+    const jurnalBruto = Math.abs(toNumber(item.kredit) - toNumber(item.debit));
+
+    const projectCandidates = sourceRows.filter((row): boolean => {
+      const sameProject =
+        idProyekJurnal !== null && row.id_proyek === idProyekJurnal;
+
+      const sourceBruto = toNumber(row.nilai_pendapatan);
+      const sameAmount = Math.abs(sourceBruto - jurnalBruto) <= 0.000001;
+
+      return sameProject && sameAmount;
+    });
+
+    if (projectCandidates.length === 1) {
+      sourceMap.set(idJurnal, projectCandidates[0]);
+      continue;
+    }
+
+    /* Jika kandidat lebih dari satu, gunakan tanggal jurnal sebagai
+       tie-breaker. Jika masih ambigu, jangan menebak nilai bersih. */
+    if (projectCandidates.length > 1) {
+      const sameJournalDateCandidates = projectCandidates.filter(
+        (row): boolean => row.tanggal === item.tanggal,
+      );
+
+      if (sameJournalDateCandidates.length === 1) {
+        sourceMap.set(idJurnal, sameJournalDateCandidates[0]);
+      }
+    }
+  }
+
+  return sourceMap;
+}
+
+/* =========================================================
+   BUILD PROJECT REVENUE ROWS
+========================================================= */
+
+function buildPendapatanProyekRows(
+  detailRows: LabaRugiDetailRow[],
+  projectLinks: Map<number, string | null>,
+  projects: ProjectRow[],
+  pendapatanSourceMap: Map<number, PendapatanProyekSourceRow>,
+): PendapatanProyekRow[] {
+  const projectMap = new Map<string, ProjectRow>();
+
+  for (const project of projects) {
+    projectMap.set(project.id, project);
+  }
+
+  return detailRows
+    .filter(
+      (item): boolean =>
+        normalizeText(item.tipe_coa) === "PENDAPATAN" &&
+        normalizeText(item.kelompok_utama) === "PENDAPATAN_OPERASIONAL",
+    )
+    .flatMap((item): PendapatanProyekRow[] => {
+      const idJurnal = Number(item.id_jurnal);
+      const source = pendapatanSourceMap.get(idJurnal);
+
+      /*
+       * Jurnal posted tanpa pasangan sumber pada public.pendapatan_proyek
+       * tidak boleh membuat API 500 dan tidak boleh dipaksa menjadi
+       * Pendapatan Bersih. Nilai net hanya boleh berasal dari
+       * public.pendapatan_proyek.nilai_bersih.
+       */
+      if (!source) {
+        console.warn(
+          "LABA RUGI: sumber Pendapatan Bersih tidak ditemukan untuk jurnal posted. Baris ini tidak dimasukkan ke Pendapatan Bersih.",
+          {
+            id_jurnal: idJurnal,
+            no_bukti: item.no_bukti,
+          },
+        );
+        return [];
+      }
+
+      const idProyekJurnal = projectLinks.get(Number(item.id_detail)) ?? null;
+
+      const idProyekSource =
+        typeof source.id_proyek === "string" && source.id_proyek.length > 0
+          ? source.id_proyek
+          : null;
+
+      if (
+        idProyekJurnal !== null &&
+        idProyekSource !== null &&
+        idProyekJurnal !== idProyekSource
+      ) {
+        throw new Error(
+          `Relasi proyek tidak cocok untuk voucher ${item.no_bukti}. Jurnal: ${idProyekJurnal}, pendapatan_proyek: ${idProyekSource}.`,
+        );
+      }
+
+      const idProyek = idProyekSource ?? idProyekJurnal;
+      const project = idProyek !== null ? projectMap.get(idProyek) : undefined;
+
+      if (project === undefined) {
+        console.warn(
+          "LABA RUGI: master proyek tidak ditemukan untuk sumber Pendapatan Bersih. Baris tidak dimasukkan.",
+          {
+            no_bukti: source.no_bukti,
+            id_proyek: idProyek,
+          },
+        );
+        return [];
+      }
+
+      const debit = toNumber(item.debit);
+      const kredit = toNumber(item.kredit);
+      const pendapatan = toNumber(source.nilai_pendapatan);
+      const nilaiPajak = toNumber(source.nilai_pajak);
+      const pendapatanBersih = toNumber(source.nilai_bersih);
+
+      if (!Number.isFinite(pendapatanBersih) || pendapatanBersih < 0) {
+        throw new Error(
+          `Nilai Bersih tidak valid untuk voucher ${source.no_bukti}.`,
+        );
+      }
+
+      return [
+        {
+          // Periode Laba Rugi mengikuti tanggal jurnal posted.
+          // Tanggal public.pendapatan_proyek hanya menjadi metadata sumber.
+          tanggal: item.tanggal,
+          id_jurnal: idJurnal,
+          no_bukti: source.no_bukti,
+          keterangan: source.keterangan ?? item.keterangan,
+          id_detail: Number(item.id_detail),
+          id_proyek: idProyek,
+          kode_proyek: project.kode_proyek,
+          nama_proyek: project.nama_proyek,
+          customer: project.customer,
+          debit,
+          kredit,
+          pendapatan,
+          nilai_pajak: nilaiPajak,
+          pendapatan_bersih: pendapatanBersih,
+        },
+      ];
+    })
+    .sort((a, b): number => {
+      const dateA = new Date(a.tanggal).getTime();
+      const dateB = new Date(b.tanggal).getTime();
+
+      if (dateA !== dateB) {
+        return dateA - dateB;
+      }
+
+      return a.id_jurnal - b.id_jurnal;
+    });
+}
+
+/* =========================================================
+   DATA ASET
+========================================================= */
+
+/*
+ * public.aset adalah sumber data master aset.
+ *
+ * Penting:
+ * - Data aset dipakai sebagai data pendukung dan rekonsiliasi.
+ * - Laba Rugi tetap mengambil nilai beban dari jurnal posted.
+ * - depresiasi_bulanan tidak langsung ditambahkan ke Laba Rugi.
+ *   Jika jurnal penyusutan sudah diposting, menambahkan depresiasi_bulanan
+ *   lagi akan menghasilkan double counting.
+ */
+async function getAssetData(): Promise<AsetReportRow[]> {
+  const { data, error } = await db
+    .from("aset")
+    .select(
+      `
+        kategori_aset,
+        nilai_perolehan,
+        akumulasi_depresiasi,
+        depresiasi_bulanan,
+        nilai_buku
+      `,
+    )
+    .order("kategori_aset", { ascending: true });
+
+  if (error) {
+    throw new Error(`Gagal mengambil data aset: ${error.message}`);
+  }
+
+  return (data ?? []) as AsetReportRow[];
+}
+
+function summarizeAssetData(rows: AsetReportRow[]): AsetReportSummary {
+  return rows.reduce(
+    (summary, row): AsetReportSummary => ({
+      jumlahAset: summary.jumlahAset + 1,
+      nilaiPerolehan: summary.nilaiPerolehan + toNumber(row.nilai_perolehan),
+      akumulasiDepresiasi:
+        summary.akumulasiDepresiasi + toNumber(row.akumulasi_depresiasi),
+      depresiasiBulanan:
+        summary.depresiasiBulanan + toNumber(row.depresiasi_bulanan),
+      nilaiBuku: summary.nilaiBuku + toNumber(row.nilai_buku),
+    }),
+    {
+      jumlahAset: 0,
+      nilaiPerolehan: 0,
+      akumulasiDepresiasi: 0,
+      depresiasiBulanan: 0,
+      nilaiBuku: 0,
+    },
   );
 }
 
-/* =========================
-   CREATE DETAIL SHEET
-========================= */
-
-async function createDetailSheet(
+function createAssetSummarySheet(
   workbook: ExcelJS.Workbook,
-  row: LabaRugiRow,
-  ledgerRows: LedgerDetailRow[],
+  rows: AsetReportRow[],
+  summary: AsetReportSummary,
+  periode: string,
+  printDate: string,
+): void {
+  const sheet = workbook.addWorksheet("Data Aset");
+
+  createTitle(
+    sheet,
+    COMPANY_NAME,
+    REPORT_SECTION,
+    "DATA ASET & DEPRESIASI",
+    periode,
+    printDate,
+  );
+
+  sheet.columns = [
+    { width: 24 },
+    { width: 24 },
+    { width: 24 },
+    { width: 24 },
+    { width: 24 },
+  ];
+
+  sheet.getRow(10).values = [
+    "Kategori Aset",
+    "Nilai Perolehan",
+    "Akumulasi Depresiasi",
+    "Depresiasi Bulanan",
+    "Nilai Buku",
+  ];
+
+  for (let col = 1; col <= 5; col++) {
+    applyHeaderStyle(sheet.getCell(10, col));
+  }
+
+  let currentRow = 11;
+
+  for (const row of rows) {
+    sheet.getCell(currentRow, 1).value = row.kategori_aset ?? "-";
+    sheet.getCell(currentRow, 2).value = toNumber(row.nilai_perolehan);
+    sheet.getCell(currentRow, 3).value = toNumber(row.akumulasi_depresiasi);
+    sheet.getCell(currentRow, 4).value = toNumber(row.depresiasi_bulanan);
+    sheet.getCell(currentRow, 5).value = toNumber(row.nilai_buku);
+
+    for (let col = 2; col <= 5; col++) {
+      sheet.getCell(currentRow, col).numFmt = ACCOUNTING_FORMAT;
+    }
+
+    currentRow++;
+  }
+
+  sheet.getCell(currentRow, 1).value =
+    `TOTAL ASET (${summary.jumlahAset} UNIT)`;
+  sheet.getCell(currentRow, 2).value = summary.nilaiPerolehan;
+  sheet.getCell(currentRow, 3).value = summary.akumulasiDepresiasi;
+  sheet.getCell(currentRow, 4).value = summary.depresiasiBulanan;
+  sheet.getCell(currentRow, 5).value = summary.nilaiBuku;
+
+  for (let col = 1; col <= 5; col++) {
+    applyTotalStyle(sheet.getCell(currentRow, col));
+  }
+
+  for (let col = 2; col <= 5; col++) {
+    sheet.getCell(currentRow, col).numFmt = ACCOUNTING_FORMAT;
+  }
+
+  currentRow += 2;
+
+  sheet.getCell(currentRow, 1).value = "CATATAN REKONSILIASI";
+  applySectionStyle(sheet.getCell(currentRow, 1));
+
+  currentRow++;
+
+  sheet.mergeCells(`A${currentRow}:E${currentRow}`);
+  sheet.getCell(currentRow, 1).value =
+    "Data depresiasi aset di atas adalah data master aset. Nilai Beban Penyusutan yang masuk ke Laba Rugi tetap hanya berasal dari jurnal posted pada periode laporan.";
+  sheet.getCell(currentRow, 1).alignment = {
+    wrapText: true,
+    vertical: "top",
+  };
+
+  currentRow += 2;
+
+  sheet.mergeCells(`A${currentRow}:E${currentRow}`);
+  sheet.getCell(currentRow, 1).value =
+    "Depresiasi bulanan aset tidak otomatis dijumlahkan ke Laba Rugi. Hal ini menjaga laporan tetap sama dengan jurnal posted dan mencegah double counting.";
+  sheet.getCell(currentRow, 1).alignment = {
+    wrapText: true,
+    vertical: "top",
+  };
+
+  addSignature(sheet, currentRow + 3);
+}
+
+function writeMainAssetSection(
+  sheet: ExcelJS.Worksheet,
+  currentRow: number,
+  rows: AsetReportRow[],
+  summary: AsetReportSummary,
+): number {
+  sheet.mergeCells(`A${currentRow}:E${currentRow}`);
+
+  sheet.getCell(`A${currentRow}`).value =
+    "DATA ASET DAN DEPRESIASI (SUMBER: PUBLIC.ASET)";
+
+  applySectionStyle(sheet.getCell(`A${currentRow}`));
+
+  currentRow++;
+
+  sheet.mergeCells(`A${currentRow}:E${currentRow}`);
+
+  sheet.getCell(`A${currentRow}`).value =
+    "Data aset diambil langsung dari kolom yang tersedia pada public.aset. Nilai Laba Rugi tetap berasal dari jurnal posted.";
+
+  sheet.getCell(`A${currentRow}`).alignment = {
+    wrapText: true,
+    vertical: "top",
+  };
+
+  currentRow += 2;
+
+  const headers = [
+    "Kategori Aset",
+    "Nilai Perolehan",
+    "Akumulasi Depresiasi",
+    "Depresiasi Bulanan",
+    "Nilai Buku",
+  ];
+
+  for (let col = 1; col <= headers.length; col++) {
+    sheet.getCell(currentRow, col).value = headers[col - 1];
+    applyHeaderStyle(sheet.getCell(currentRow, col));
+  }
+
+  currentRow++;
+
+  for (const asset of rows) {
+    sheet.getCell(currentRow, 1).value = asset.kategori_aset ?? "-";
+    sheet.getCell(currentRow, 2).value = toNumber(asset.nilai_perolehan);
+    sheet.getCell(currentRow, 3).value = toNumber(asset.akumulasi_depresiasi);
+    sheet.getCell(currentRow, 4).value = toNumber(asset.depresiasi_bulanan);
+    sheet.getCell(currentRow, 5).value = toNumber(asset.nilai_buku);
+
+    for (let col = 2; col <= 5; col++) {
+      sheet.getCell(currentRow, col).numFmt = ACCOUNTING_FORMAT;
+    }
+
+    currentRow++;
+  }
+
+  sheet.getCell(currentRow, 1).value =
+    `TOTAL ASET (${summary.jumlahAset} BARIS DATA)`;
+
+  sheet.getCell(currentRow, 2).value = summary.nilaiPerolehan;
+  sheet.getCell(currentRow, 3).value = summary.akumulasiDepresiasi;
+  sheet.getCell(currentRow, 4).value = summary.depresiasiBulanan;
+  sheet.getCell(currentRow, 5).value = summary.nilaiBuku;
+
+  for (let col = 1; col <= 5; col++) {
+    applyTotalStyle(sheet.getCell(currentRow, col));
+  }
+
+  for (let col = 2; col <= 5; col++) {
+    sheet.getCell(currentRow, col).numFmt = ACCOUNTING_FORMAT;
+  }
+
+  currentRow += 2;
+
+  sheet.getCell(currentRow, 1).value = "REKONSILIASI ASET";
+
+  applySectionStyle(sheet.getCell(currentRow, 1));
+
+  currentRow++;
+
+  sheet.getCell(currentRow, 1).value = "Jumlah Data Aset";
+  sheet.getCell(currentRow, 2).value = summary.jumlahAset;
+
+  currentRow++;
+
+  sheet.getCell(currentRow, 1).value = "Nilai Perolehan Aset";
+  sheet.getCell(currentRow, 2).value = summary.nilaiPerolehan;
+  sheet.getCell(currentRow, 2).numFmt = ACCOUNTING_FORMAT;
+
+  currentRow++;
+
+  sheet.getCell(currentRow, 1).value = "Akumulasi Depresiasi";
+  sheet.getCell(currentRow, 2).value = summary.akumulasiDepresiasi;
+  sheet.getCell(currentRow, 2).numFmt = ACCOUNTING_FORMAT;
+
+  currentRow++;
+
+  sheet.getCell(currentRow, 1).value = "Depresiasi Bulanan Master Aset";
+  sheet.getCell(currentRow, 2).value = summary.depresiasiBulanan;
+  sheet.getCell(currentRow, 2).numFmt = ACCOUNTING_FORMAT;
+
+  currentRow++;
+
+  sheet.getCell(currentRow, 1).value = "Nilai Buku Aset";
+  sheet.getCell(currentRow, 2).value = summary.nilaiBuku;
+  sheet.getCell(currentRow, 2).numFmt = ACCOUNTING_FORMAT;
+
+  currentRow += 2;
+
+  sheet.mergeCells(`A${currentRow}:E${currentRow}`);
+
+  sheet.getCell(currentRow, 1).value =
+    "CATATAN: Data aset ditampilkan pada laporan Laba Rugi sebagai data aset dan rekonsiliasi. Depresiasi bulanan master tidak ditambahkan kembali ke total beban Laba Rugi karena beban yang memengaruhi laba harus mengikuti jurnal posted.";
+
+  sheet.getCell(currentRow, 1).alignment = {
+    wrapText: true,
+    vertical: "top",
+  };
+
+  return currentRow + 2;
+}
+
+async function createCoaDetailSheet(
+  workbook: ExcelJS.Workbook,
+  row: ReportLine,
+  ledgerRows: LabaRugiDetailRow[],
   periode: string,
   printDate: string,
 ): Promise<void> {
-  const detailSheetName = formatSheetName(row.kode, row.nama);
+  const detailSheetName = formatSheetName(row.kode, row.nama, row.id_coa);
 
   const detailSheet = workbook.addWorksheet(detailSheetName);
 
   const accountDetails = ledgerRows
-    .filter(
-      (item): boolean =>
-        String(item.kode_coa).trim() === String(row.kode).trim(),
-    )
+    .filter((item): boolean => Number(item.id_coa) === row.id_coa)
     .sort((a, b): number => {
       const dateA = new Date(a.tanggal).getTime();
 
@@ -295,39 +1302,34 @@ async function createDetailSheet(
       return String(a.no_bukti).localeCompare(String(b.no_bukti));
     });
 
-  const firstRow = accountDetails[0];
-
-  const division =
-    firstRow?.business_unit === "KEBUN SAWIT"
-      ? (firstRow.region_name ?? "KEBUN SAWIT")
-      : "CORPORATE";
-
-  const section =
-    firstRow?.business_unit === "KEBUN SAWIT"
-      ? "JASA PERKEBUNAN SAWIT"
-      : "JASA CUT & FILL DAN PENGURUGAN TANAH";
-
   createTitle(
     detailSheet,
-    "PT. Haemes Mandiri Sejahterabanta",
-    division,
-    section,
+    COMPANY_NAME,
+    REPORT_SECTION,
     "LABA RUGI",
     periode,
     printDate,
   );
 
   detailSheet.columns = [
-    { width: 15 }, // tanggal
-    { width: 25 }, // voucher
-    { width: 18 }, // wilayah
-    { width: 20 }, // estate
-    { width: 20 }, // divisi
-    { width: 18 }, // block
-    { width: 45 }, // keterangan
-    { width: 18 }, // debit
-    { width: 18 }, // kredit
-    { width: 18 }, // saldo
+    {
+      width: 15,
+    },
+    {
+      width: 25,
+    },
+    {
+      width: 45,
+    },
+    {
+      width: 18,
+    },
+    {
+      width: 18,
+    },
+    {
+      width: 18,
+    },
   ];
 
   setInternalHyperlink(
@@ -339,124 +1341,332 @@ async function createDetailSheet(
   detailSheet.getRow(11).values = [
     "Tanggal",
     "Voucher",
-    "Wilayah",
-    "Estate",
-    "Divisi",
-    "Block",
     "Keterangan",
     "Debit",
     "Kredit",
     "Saldo",
   ];
 
-  for (let col = 1; col <= 9; col++) {
+  for (let col = 1; col <= 6; col++) {
     applyHeaderStyle(detailSheet.getCell(11, col));
   }
 
   let detailRow = 12;
   let saldo = 0;
 
-  const isPendapatan = row.kode.startsWith("4");
-  const isHpp = row.kode.startsWith("5");
-  const isBeban = row.kode.startsWith("6");
+  const isPendapatan = normalizeText(row.tipe) === "PENDAPATAN";
 
   for (const item of accountDetails) {
+    const debit = toNumber(item.debit);
+
+    const kredit = toNumber(item.kredit);
+
     if (isPendapatan) {
-      saldo += Number(item.kredit) - Number(item.debit);
-    } else if (isHpp || isBeban) {
-      saldo += Number(item.debit) - Number(item.kredit);
+      saldo += kredit - debit;
+    } else {
+      saldo += debit - kredit;
     }
 
-    detailSheet.getCell(`A${detailRow}`).value = new Date(
+    detailSheet.getCell(`A${detailRow}`).value = formatDateIndonesia(
       item.tanggal,
-    ).toLocaleDateString("id-ID");
+    );
 
     detailSheet.getCell(`B${detailRow}`).value = item.no_bukti;
 
-    detailSheet.getCell(`C${detailRow}`).value = item.region_name ?? "-";
+    detailSheet.getCell(`C${detailRow}`).value = item.keterangan;
 
-    detailSheet.getCell(`D${detailRow}`).value = item.estate_name ?? "-";
+    detailSheet.getCell(`D${detailRow}`).value = debit !== 0 ? debit : "";
 
-    detailSheet.getCell(`E${detailRow}`).value = item.block_code ?? "-";
+    detailSheet.getCell(`E${detailRow}`).value = kredit !== 0 ? kredit : "";
 
-    detailSheet.getCell(`F${detailRow}`).value = item.keterangan;
+    detailSheet.getCell(`F${detailRow}`).value = saldo;
 
-    detailSheet.getCell(`G${detailRow}`).value =
-      Number(item.debit) > 0 ? Number(item.debit) : "";
-
-    detailSheet.getCell(`H${detailRow}`).value =
-      Number(item.kredit) > 0 ? Number(item.kredit) : "";
-
-    detailSheet.getCell(`I${detailRow}`).value = saldo;
-
-    for (let col = 7; col <= 9; col++) {
+    for (let col = 4; col <= 6; col++) {
       detailSheet.getCell(detailRow, col).numFmt = ACCOUNTING_FORMAT;
     }
 
     detailRow++;
   }
 
-  detailSheet.mergeCells(`A${detailRow}:H${detailRow}`);
+  detailSheet.mergeCells(`A${detailRow}:E${detailRow}`);
 
   detailSheet.getCell(`A${detailRow}`).value = "Saldo Akhir";
 
-  detailSheet.getCell(`I${detailRow}`).value = saldo;
+  detailSheet.getCell(`F${detailRow}`).value = saldo;
 
-  detailSheet.getCell(`I${detailRow}`).numFmt = ACCOUNTING_FORMAT;
+  detailSheet.getCell(`F${detailRow}`).numFmt = ACCOUNTING_FORMAT;
 
   applyTotalStyle(detailSheet.getCell(`A${detailRow}`));
 
-  applyTotalStyle(detailSheet.getCell(`I${detailRow}`));
-
-  const qrValue = generateQRCodeValue({
-    id: detailRow,
-    sumber_modul: "LABA_RUGI",
-    nilai_transaksi: Number(row.nilai),
-    tanggal_transaksi: new Date().toISOString(),
-  });
-
-  const qrImage = await QRCode.toDataURL(String(qrValue));
-
-  const imageId = workbook.addImage({
-    base64: qrImage,
-    extension: "png",
-  });
-
-  detailSheet.addImage(imageId, {
-    tl: {
-      col: 9,
-      row: 11,
-    },
-    ext: {
-      width: 90,
-      height: 90,
-    },
-  });
+  applyTotalStyle(detailSheet.getCell(`F${detailRow}`));
 
   addSignature(detailSheet, detailRow + 4);
 }
 
-/* =========================
+/* =========================================================
+   DETAIL PENDAPATAN PROYEK
+========================================================= */
+
+async function createPendapatanProyekSheet(
+  workbook: ExcelJS.Workbook,
+  rows: PendapatanProyekRow[],
+  periode: string,
+  printDate: string,
+  totalPendapatan: number,
+): Promise<void> {
+  const sheet = workbook.addWorksheet("Pendapatan Proyek");
+
+  createTitle(
+    sheet,
+    COMPANY_NAME,
+    REPORT_SECTION,
+    "LABA RUGI",
+    periode,
+    printDate,
+  );
+
+  sheet.columns = [
+    {
+      width: 15,
+    },
+    {
+      width: 15,
+    },
+    {
+      width: 30,
+    },
+    {
+      width: 35,
+    },
+    {
+      width: 25,
+    },
+    {
+      width: 18,
+    },
+    {
+      width: 18,
+    },
+    {
+      width: 20,
+    },
+  ];
+
+  setInternalHyperlink(
+    sheet.getCell("A10"),
+    "Kembali ke Laba Rugi",
+    "Laba Rugi",
+  );
+
+  let currentRow = 11;
+
+  sheet.mergeCells(`A${currentRow}:H${currentRow}`);
+  sheet.getCell(`A${currentRow}`).value =
+    "Pendapatan Bersih diambil langsung dari public.pendapatan_proyek.nilai_bersih. Nilai jurnal posted tidak diubah.";
+  sheet.getCell(`A${currentRow}`).alignment = {
+    wrapText: true,
+    vertical: "top",
+  };
+
+  currentRow += 2;
+
+  sheet.getRow(currentRow).values = [
+    "Tanggal",
+    "Kode Proyek",
+    "Nama Proyek",
+    "Customer",
+    "Voucher",
+    "Debit",
+    "Kredit",
+    "Pendapatan Bersih",
+  ];
+
+  for (let col = 1; col <= 8; col++) {
+    applyHeaderStyle(sheet.getCell(currentRow, col));
+  }
+
+  currentRow++;
+
+  for (const row of rows) {
+    sheet.getCell(`A${currentRow}`).value = formatDateIndonesia(row.tanggal);
+
+    sheet.getCell(`B${currentRow}`).value = row.kode_proyek ?? "-";
+
+    sheet.getCell(`C${currentRow}`).value = row.nama_proyek ?? "-";
+
+    sheet.getCell(`D${currentRow}`).value = row.customer ?? "-";
+
+    sheet.getCell(`E${currentRow}`).value = row.no_bukti;
+
+    sheet.getCell(`F${currentRow}`).value = row.debit !== 0 ? row.debit : "";
+
+    sheet.getCell(`G${currentRow}`).value = row.kredit !== 0 ? row.kredit : "";
+
+    sheet.getCell(`H${currentRow}`).value = row.pendapatan_bersih;
+
+    for (let col = 6; col <= 8; col++) {
+      sheet.getCell(currentRow, col).numFmt = ACCOUNTING_FORMAT;
+    }
+
+    currentRow++;
+  }
+
+  sheet.mergeCells(`A${currentRow}:G${currentRow}`);
+
+  sheet.getCell(`A${currentRow}`).value = "TOTAL PENDAPATAN BERSIH";
+
+  sheet.getCell(`H${currentRow}`).value = totalPendapatan;
+
+  sheet.getCell(`H${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+  applyTotalStyle(sheet.getCell(`A${currentRow}`));
+
+  applyTotalStyle(sheet.getCell(`H${currentRow}`));
+
+  currentRow += 2;
+
+  sheet.getCell(`A${currentRow}`).value = "TOTAL PENDAPATAN BRUTO";
+  sheet.getCell(`H${currentRow}`).value = rows.reduce(
+    (total, row): number => total + row.pendapatan,
+    0,
+  );
+  sheet.getCell(`H${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+  currentRow++;
+
+  sheet.getCell(`A${currentRow}`).value = "TOTAL PAJAK PENDAPATAN";
+  sheet.getCell(`H${currentRow}`).value = rows.reduce(
+    (total, row): number => total + row.nilai_pajak,
+    0,
+  );
+  sheet.getCell(`H${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+  addSignature(sheet, currentRow + 4);
+}
+
+/* =========================================================
+   WRITE REPORT SECTION
+========================================================= */
+
+async function writeReportSection(
+  sheet: ExcelJS.Worksheet,
+  workbook: ExcelJS.Workbook,
+  currentRow: number,
+  title: string,
+  rows: ReportLine[],
+  ledgerRows: LabaRugiDetailRow[],
+  periode: string,
+  printDate: string,
+): Promise<number> {
+  sheet.mergeCells(`A${currentRow}:C${currentRow}`);
+
+  sheet.getCell(`A${currentRow}`).value = title;
+
+  applySectionStyle(sheet.getCell(`A${currentRow}`));
+
+  currentRow++;
+
+  for (const row of rows) {
+    const detailSheetName = formatSheetName(row.kode, row.nama, row.id_coa);
+
+    setInternalHyperlink(
+      sheet.getCell(`B${currentRow}`),
+      row.nama,
+      detailSheetName,
+    );
+
+    sheet.getCell(`C${currentRow}`).value = row.saldo;
+
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+    await createCoaDetailSheet(workbook, row, ledgerRows, periode, printDate);
+
+    currentRow++;
+  }
+
+  return currentRow;
+}
+
+/* =========================================================
    GET
-========================= */
+========================================================= */
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
-    /* =========================
-       GET DATA
-    ========================= */
+    const url = new URL(request.url);
 
-    const { data, error } = await db
-      .from("v_laba_rugi")
-      .select("*")
-      .order("kode", {
-        ascending: true,
-      });
+    const { tanggalMulai, tanggalSelesai } = getReportDateRange(
+      url.searchParams,
+    );
 
-    if (error) {
+    if (tanggalMulai > tanggalSelesai) {
       return NextResponse.json(
         {
-          error: error.message,
+          error: "Tanggal mulai tidak boleh lebih besar dari tanggal selesai.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    /* =====================================================
+       1. AMBIL DETAIL LABA RUGI DARI VIEW DATABASE
+       =====================================================
+
+       View preview SQL:
+       public.v_laba_rugi_api_sql_source_preview_20261012
+
+       View dasar public.v_laba_rugi_report_detail dan view preview memastikan:
+       - jurnal.is_posted = true
+       - coa.aktif = true
+       - coa.is_header = false
+       - tipe COA = PENDAPATAN / BEBAN
+       - nilai_laba_rugi dihitung database
+       - kelompok_laba_rugi ditentukan database
+
+       API tidak lagi melakukan klasifikasi berdasarkan nama COA.
+       ===================================================== */
+
+    const { data: viewData, error: viewError } = await db
+      .from("v_laba_rugi_api_sql_source_preview_20261012")
+      .select(
+        `
+        id_jurnal,
+        tanggal,
+        no_bukti,
+        sumber,
+        modul,
+        ref_id,
+        id_detail,
+        id_coa,
+        kode_coa,
+        nama_coa,
+        tipe_coa,
+        kategori_laporan,
+        sub_kategori,
+        kelompok_utama,
+        kelompok_detail,
+        debit,
+        kredit,
+        nilai_laba_rugi,
+        kelompok_laba_rugi
+        `,
+      )
+      .gte("tanggal", tanggalMulai)
+      .lt("tanggal", getNextDate(tanggalSelesai))
+      .not("no_bukti", "like", "CLS-%")
+      .not("no_bukti", "like", "CLOSE-%")
+      .not("no_bukti", "like", "OPEN-%")
+      .not("no_bukti", "like", "REV-%")
+      .order("tanggal", { ascending: true })
+      .order("id_jurnal", { ascending: true })
+      .order("id_detail", { ascending: true });
+
+    if (viewError) {
+      return NextResponse.json(
+        {
+          error: `Gagal mengambil data view Laba Rugi: ${viewError.message}`,
         },
         {
           status: 500,
@@ -464,40 +1674,132 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    const rows: LabaRugiRow[] = (data ?? []) as LabaRugiRow[];
+    const rawViewRows = (viewData ?? []) as LabaRugiViewRow[];
 
-    const { data: periode } = await db
+    if (rawViewRows.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Tidak ada jurnal posted pada tanggal laporan.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    /* =====================================================
+       2. AMBIL METADATA JURNAL
+
+       Dipakai untuk:
+       - keterangan
+       - id_periode
+       - validasi referensi periode
+       - detail Excel
+
+       Nilai accounting tetap berasal dari view.
+       ===================================================== */
+
+    const journalIds = Array.from(
+      new Set(
+        rawViewRows
+          .map((row): number => Number(row.id_jurnal))
+          .filter((id): boolean => Number.isInteger(id) && id > 0),
+      ),
+    );
+
+    if (journalIds.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Data view Laba Rugi tidak memiliki id_jurnal yang valid.",
+        },
+        {
+          status: 422,
+        },
+      );
+    }
+
+    const { data: jurnalData, error: jurnalError } = await db
+      .from("jurnal")
+      .select(
+        `
+        id_jurnal,
+        tanggal,
+        no_bukti,
+        keterangan,
+        sumber,
+        modul,
+        ref_id,
+        id_periode
+        `,
+      )
+      .in("id_jurnal", journalIds);
+
+    if (jurnalError) {
+      return NextResponse.json(
+        {
+          error: `Gagal mengambil metadata jurnal: ${jurnalError.message}`,
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    const jurnalRows = (jurnalData ?? []) as JurnalReportRow[];
+
+    if (jurnalRows.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Metadata jurnal tidak ditemukan untuk data Laba Rugi.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    /* =====================================================
+       3. VALIDASI REFERENSI PERIODE
+
+       Status OPEN/CLOSED tidak menghapus jurnal historis.
+       Periode hanya digunakan untuk memastikan id_periode
+       yang direferensikan jurnal memang valid.
+       ===================================================== */
+
+    const periodeIds = Array.from(
+      new Set(
+        jurnalRows
+          .map((row): number => Number(row.id_periode))
+          .filter((id): boolean => Number.isInteger(id) && id > 0),
+      ),
+    );
+
+    if (periodeIds.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Jurnal posted pada tanggal laporan tidak memiliki periode yang valid.",
+        },
+        {
+          status: 422,
+        },
+      );
+    }
+
+    const { data: periodeData, error: periodeError } = await db
       .from("periode")
-      .select("nama_periode")
-      .eq("status", "OPEN")
-      .single();
+      .select(
+        `
+        id_periode,
+        status
+        `,
+      )
+      .in("id_periode", periodeIds);
 
-    const printDate = new Date().toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
-
-    const { data: ledgerData, error: ledgerError } = await db.from(
-      "v_general_ledger_report",
-    ).select(`
-    tanggal,
-    no_bukti,
-    keterangan,
-    kode_coa,
-    debit,
-    kredit,
-    business_unit,
-    region_name,
-    estate_name,
-    division_name,
-    block_code
-`);
-
-    if (ledgerError) {
+    if (periodeError) {
       return NextResponse.json(
         {
-          error: ledgerError.message,
+          error: `Gagal mengambil status periode: ${periodeError.message}`,
         },
         {
           status: 500,
@@ -505,82 +1807,389 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    const ledgerRows: LedgerDetailRow[] = (ledgerData ??
-      []) as LedgerDetailRow[];
+    const periodeRows = (periodeData ?? []) as PeriodeReportRow[];
 
-    /* =========================
-       FILTER CLEAN
-    ========================= */
-
-    const cleanRows = rows.filter(
-      (row, index, self): boolean =>
-        index === self.findIndex((x): boolean => x.kode === row.kode),
+    const validPeriodeIds = new Set<number>(
+      periodeRows
+        .map((row): number => Number(row.id_periode))
+        .filter((id): boolean => Number.isInteger(id) && id > 0),
     );
 
-    /* =========================
-       GROUPING
-    ========================= */
-
-    const pendapatan = cleanRows.filter(
-      (item): boolean => item.kode.startsWith("4") && !isHeaderAccount(item),
+    const validJournalIds = new Set<number>(
+      jurnalRows
+        .filter((row): boolean => validPeriodeIds.has(Number(row.id_periode)))
+        .map((row): number => Number(row.id_jurnal)),
     );
 
-    const hpp = cleanRows.filter(
-      (item): boolean => item.kode.startsWith("5") && !isHeaderAccount(item),
+    if (validJournalIds.size === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Tidak ada jurnal posted dengan referensi periode yang valid untuk tanggal laporan.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    const reportViewRows = rawViewRows.filter((row): boolean =>
+      validJournalIds.has(Number(row.id_jurnal)),
     );
 
-    const beban = cleanRows.filter(
-      (item): boolean => item.kode.startsWith("6") && !isHeaderAccount(item),
+    if (reportViewRows.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Tidak ada detail Laba Rugi dari jurnal posted dengan periode yang valid.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    /* =====================================================
+       4. MAP METADATA JURNAL
+       ===================================================== */
+
+    const journalMap = new Map<number, JurnalReportRow>();
+
+    for (const journal of jurnalRows) {
+      if (validJournalIds.has(Number(journal.id_jurnal))) {
+        journalMap.set(Number(journal.id_jurnal), journal);
+      }
+    }
+
+    /* =====================================================
+       5. BENTUK DETAIL LAPORAN
+
+       Struktur detail tetap dipertahankan supaya:
+       - detail COA Excel tetap berjalan
+       - Pendapatan Proyek tetap berjalan
+       - hyperlink detail tetap berjalan
+
+       Namun sumber COA/classification berasal dari view.
+       ===================================================== */
+
+    const detailRows: LabaRugiDetailRow[] = [];
+
+    for (const row of reportViewRows) {
+      const journal = journalMap.get(Number(row.id_jurnal));
+
+      if (!journal) {
+        continue;
+      }
+
+      detailRows.push({
+        id_jurnal: Number(row.id_jurnal),
+        tanggal: row.tanggal,
+        no_bukti: row.no_bukti,
+        keterangan: journal.keterangan,
+        sumber: row.sumber,
+        modul: row.modul,
+        ref_id: row.ref_id,
+        id_detail: Number(row.id_detail),
+        id_coa: Number(row.id_coa),
+        debit: row.debit,
+        kredit: row.kredit,
+        kode_coa: row.kode_coa,
+        nama_coa: row.nama_coa,
+        tipe_coa: row.tipe_coa,
+        normal_balance: null,
+        kategori_laporan: row.kategori_laporan,
+        sub_kategori: row.sub_kategori,
+        kelompok_utama: row.kelompok_utama,
+        kelompok_detail: row.kelompok_detail,
+        level_coa: null,
+        parent_id: null,
+      });
+    }
+
+    if (detailRows.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Tidak ada detail jurnal yang valid dari view Laba Rugi.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    /* =====================================================
+       6. AGREGASI COA PERIODE
+
+       Penting:
+       aggregate memakai reportViewRows, bukan detailRows,
+       karena nilai_laba_rugi dan kelompok_laba_rugi berasal
+       langsung dari database.
+       ===================================================== */
+
+    const coaRows = aggregateCoaRows(reportViewRows);
+
+    const unclassifiedRows = coaRows.filter(
+      (row): boolean => normalizeText(row.kelompok_laba_rugi) === "LAINNYA",
     );
 
-    /* =========================
-       TOTAL
-    ========================= */
+    if (unclassifiedRows.length > 0) {
+      console.warn(
+        "LABA RUGI: terdapat COA yang belum memiliki kelompok_laba_rugi laporan.",
+        unclassifiedRows.map((row) => ({
+          id_coa: row.id_coa,
+          kode_coa: row.kode_coa,
+          nama_coa: row.nama_coa,
+          nilai_laba_rugi: row.nilai_laba_rugi,
+        })),
+      );
+    }
 
-    const totalPendapatan = pendapatan.reduce(
-      (sum, item): number => sum + Number(item.nilai),
+    if (coaRows.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Tidak ada COA laba rugi yang memiliki transaksi pada periode laporan.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    /* =====================================================
+       7. RELASI PROJECT
+       ===================================================== */
+
+    const { projectLinks, projects } = await getProjectRelations(detailRows);
+
+    /* =====================================================
+       8. PENDAPATAN PROYEK
+       ===================================================== */
+
+    const pendapatanSourceMap = await getPendapatanProyekSource(
+      detailRows,
+      projectLinks,
+    );
+
+    const pendapatanProyekRows = buildPendapatanProyekRows(
+      detailRows,
+      projectLinks,
+      projects,
+      pendapatanSourceMap,
+    );
+
+    const totalPendapatanBersih = pendapatanProyekRows.reduce(
+      (total, row): number => total + row.pendapatan_bersih,
       0,
     );
 
-    const totalHpp = hpp.reduce(
-      (sum, item): number => sum + Math.abs(Number(item.nilai)),
+    const totalPendapatanBrutoProyek = pendapatanProyekRows.reduce(
+      (total, row): number => total + row.pendapatan,
       0,
     );
 
-    const labaKotor = totalPendapatan - totalHpp;
-
-    const totalBeban = beban.reduce(
-      (sum, item): number => sum + Math.abs(Number(item.nilai)),
+    const totalPajakPendapatanProyek = pendapatanProyekRows.reduce(
+      (total, row): number => total + row.nilai_pajak,
       0,
     );
 
-    const labaBersih = labaKotor - totalBeban;
+    /* =====================================================
+       9. DATA ASET
+       ===================================================== */
 
-    /* =========================
-       WORKBOOK
-    ========================= */
+    const assetRows = await getAssetData();
+    const assetSummary = summarizeAssetData(assetRows);
+
+    if (assetRows.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Data aset tidak ditemukan pada public.aset.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    /* =====================================================
+       10. SECTION
+
+       Seluruh klasifikasi berasal dari
+       kelompok_laba_rugi di database.
+       ===================================================== */
+
+    const sections = buildReportSections(coaRows);
+
+    const administrativeCoaIds = new Set(
+      coaRows
+        .filter(
+          (row): boolean =>
+            normalizeText(row.kelompok_laba_rugi) === "BEBAN_ADMINISTRATIF",
+        )
+        .map((row): number => row.id_coa),
+    );
+
+    const reportAdministrativeCoaIds = new Set(
+      sections.bebanAdministratif.rows.map((row): number => row.id_coa),
+    );
+
+    const missingAdministrativeCoaIds = Array.from(administrativeCoaIds).filter(
+      (idCoa): boolean => !reportAdministrativeCoaIds.has(idCoa),
+    );
+
+    if (missingAdministrativeCoaIds.length > 0) {
+      console.error(
+        "LABA RUGI: COA BEBAN_ADMINISTRATIF dari database tidak masuk ke section laporan.",
+        missingAdministrativeCoaIds,
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Terdapat COA Beban Administratif yang diklasifikasikan database tetapi tidak masuk ke laporan Laba Rugi.",
+          id_coa: missingAdministrativeCoaIds,
+        },
+        { status: 500 },
+      );
+    }
+
+    /*
+     * DASAR LABA RUGI UTAMA:
+     * Pendapatan operasional berasal dari jurnal posted dan klasifikasi
+     * public.v_laba_rugi_report_detail, bukan dari nilai_bersih modul proyek.
+     *
+     * public.pendapatan_proyek.nilai_bersih tetap ditampilkan di sheet
+     * pendukung "Pendapatan Proyek" saja. Dengan demikian angka bersih
+     * proyek tidak menggantikan pendapatan bruto jurnal dan tidak tercampur
+     * dengan beban yang bersumber dari jurnal.
+     *
+     * Tidak ada jurnal atau nominal database yang diubah oleh API ini.
+     */
+    const pendapatanProyekJurnal = sections.pendapatanProyek.total;
+
+    if (
+      Math.abs(pendapatanProyekJurnal - totalPendapatanBrutoProyek) > 0.000001
+    ) {
+      console.warn(
+        "LABA RUGI: total pendapatan operasional pada view berbeda dengan rincian bruto modul proyek.",
+        {
+          pendapatanProyekJurnal,
+          pendapatanProyekBrutoModul: totalPendapatanBrutoProyek,
+          pendapatanBersihModul: totalPendapatanBersih,
+        },
+      );
+    }
+
+    const totalPendapatanFinal = pendapatanProyekJurnal;
+
+    console.info(
+      "LABA RUGI: pendapatan utama bersumber dari public.v_laba_rugi_report_detail; pendapatan bersih proyek hanya untuk rincian pendukung.",
+      {
+        pendapatanOperasionalJurnal: totalPendapatanFinal,
+        penghasilanLainJurnal: sections.penghasilanLain.total,
+        pendapatanBrutoModul: totalPendapatanBrutoProyek,
+        pajakPendapatanModul: totalPajakPendapatanProyek,
+        pendapatanBersihModul: totalPendapatanBersih,
+      },
+    );
+
+    /* =====================================================
+       10. FORMULA LABA RUGI
+
+       Semua angka section berasal dari klasifikasi database.
+       Beban Administratif tidak dipindahkan ke Beban Lain atau
+       dihilangkan hanya karena nilainya negatif/net credit.
+
+
+       PPh sudah menjadi kelompok database tersendiri:
+       BEBAN_PAJAK_PENGHASILAN.
+
+       Karena itu PPh:
+       - TIDAK masuk laba sebelum pajak
+       - DIKURANGKAN setelah laba sebelum pajak
+
+       Tidak boleh lagi melakukan:
+       bebanLain - pajakPenghasilan
+       karena itu akan berisiko double counting.
+       ===================================================== */
+
+    const labaKotor = totalPendapatanFinal - sections.biayaPenjualan.total;
+
+    const labaSebelumPajak =
+      labaKotor +
+      sections.penghasilanLain.total -
+      sections.bebanAdministratif.total -
+      sections.bebanLain.total;
+
+    const labaBersih = labaSebelumPajak - sections.pajakPenghasilan.total;
+
+    const totals: ReportTotals = {
+      pendapatanOperasionalJurnal: totalPendapatanFinal,
+
+      biayaPenjualan: sections.biayaPenjualan.total,
+
+      labaKotor,
+
+      penghasilanLain: sections.penghasilanLain.total,
+
+      bebanAdministratif: sections.bebanAdministratif.total,
+
+      bebanLain: sections.bebanLain.total,
+
+      bebanPajakPenghasilan: sections.pajakPenghasilan.total,
+
+      labaSebelumPajak,
+
+      labaBersih,
+    };
+
+    /* =====================================================
+       11. EXCEL WORKBOOK
+       ===================================================== */
 
     const workbook = new ExcelJS.Workbook();
 
     const sheet = workbook.addWorksheet("Laba Rugi");
 
+    const printDate = formatPrintDate();
+
+    const periode = `${formatDateIndonesia(tanggalMulai)} s/d ${formatDateIndonesia(tanggalSelesai)}`;
+
     createTitle(
       sheet,
-      "PT. Haemes Mandiri Sejahterabanta",
-      "CORPORATE",
-      "JASA CUT & FILL DAN PENGURUGAN TANAH",
+      COMPANY_NAME,
+      REPORT_SECTION,
       "LABA RUGI",
-      periode?.nama_periode ?? "-",
+      periode,
       printDate,
     );
 
-    sheet.columns = [{ width: 15 }, { width: 45 }, { width: 25 }];
+    createAssetSummarySheet(
+      workbook,
+      assetRows,
+      assetSummary,
+      periode,
+      printDate,
+    );
+
+    sheet.columns = [
+      { width: 5 },
+      { width: 50 },
+      { width: 25 },
+      { width: 18 },
+      { width: 20 },
+      { width: 22 },
+      { width: 20 },
+      { width: 20 },
+      { width: 18 },
+      { width: 16 },
+    ];
 
     let currentRow = 11;
 
-    /* =========================
+    /* =====================================================
        PENDAPATAN
-    ========================= */
+       ===================================================== */
 
     sheet.mergeCells(`A${currentRow}:C${currentRow}`);
 
@@ -590,180 +2199,239 @@ export async function GET(): Promise<Response> {
 
     currentRow++;
 
-    for (const row of pendapatan) {
-      const detailSheetName = formatSheetName(row.kode, row.nama);
+    sheet.getCell(`B${currentRow}`).value = "Pendapatan Proyek (Jurnal Posted)";
 
-      setInternalHyperlink(
-        sheet.getCell(`B${currentRow}`),
-        row.nama,
-        detailSheetName,
-      );
-
-      sheet.getCell(`C${currentRow}`).value = Number(row.nilai);
-
-      sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
-
-      await createDetailSheet(
-        workbook,
-        row,
-        ledgerRows,
-        periode?.nama_periode ?? "-",
-        printDate,
-      );
-
-      currentRow++;
-    }
-
-    /* =========================
-       TOTAL PENDAPATAN
-    ========================= */
-
-    sheet.getCell(`B${currentRow}`).value = "Total Pendapatan";
-
-    sheet.getCell(`C${currentRow}`).value = totalPendapatan;
-
-    applyTotalStyle(sheet.getCell(`B${currentRow}`));
-
-    applyTotalStyle(sheet.getCell(`C${currentRow}`));
+    sheet.getCell(`C${currentRow}`).value = totals.pendapatanOperasionalJurnal;
 
     sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
-
-    currentRow += 2;
-
-    /* =========================
-       HPP
-    ========================= */
-
-    sheet.mergeCells(`A${currentRow}:C${currentRow}`);
-
-    sheet.getCell(`A${currentRow}`).value = "Harga Pokok Penjualan";
-
-    applySectionStyle(sheet.getCell(`A${currentRow}`));
 
     currentRow++;
 
-    for (const row of hpp) {
-      const detailSheetName = formatSheetName(row.kode, row.nama);
+    await createPendapatanProyekSheet(
+      workbook,
+      pendapatanProyekRows,
+      periode,
+      printDate,
+      totalPendapatanBersih,
+    );
 
-      setInternalHyperlink(
-        sheet.getCell(`B${currentRow}`),
-        row.nama,
-        detailSheetName,
-      );
+    sheet.getCell(`B${currentRow}`).value =
+      "Total Pendapatan Proyek (Jurnal Posted)";
 
-      sheet.getCell(`C${currentRow}`).value = Math.abs(Number(row.nilai));
+    sheet.getCell(`C${currentRow}`).value = totals.pendapatanOperasionalJurnal;
 
-      sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
-
-      await createDetailSheet(
-        workbook,
-        row,
-        ledgerRows,
-        periode?.nama_periode ?? "-",
-        printDate,
-      );
-
-      currentRow++;
-    }
-
-    sheet.getCell(`B${currentRow}`).value = "Total Harga Pokok Penjualan";
-
-    sheet.getCell(`C${currentRow}`).value = totalHpp;
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
     applyTotalStyle(sheet.getCell(`B${currentRow}`));
 
     applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
+    currentRow += 2;
+
+    /* =====================================================
+       BIAYA PENJUALAN
+       ===================================================== */
+
+    currentRow = await writeReportSection(
+      sheet,
+      workbook,
+      currentRow,
+      "Biaya Penjualan",
+      sections.biayaPenjualan.rows,
+      detailRows,
+      periode,
+      printDate,
+    );
+
+    sheet.getCell(`B${currentRow}`).value = "Jumlah Biaya Penjualan";
+
+    sheet.getCell(`C${currentRow}`).value = totals.biayaPenjualan;
+
     sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+    applyTotalStyle(sheet.getCell(`B${currentRow}`));
+
+    applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
     currentRow += 2;
 
-    /* =========================
+    /* =====================================================
        LABA KOTOR
-    ========================= */
+       ===================================================== */
 
-    sheet.getCell(`B${currentRow}`).value = "TOTAL LABA KOTOR";
+    sheet.getCell(`B${currentRow}`).value = "LABA KOTOR";
 
-    sheet.getCell(`C${currentRow}`).value = labaKotor;
+    sheet.getCell(`C${currentRow}`).value = totals.labaKotor;
+
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
     applyTotalStyle(sheet.getCell(`B${currentRow}`));
 
     applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
+    currentRow += 2;
+
+    /* =====================================================
+       PENGHASILAN LAIN
+       ===================================================== */
+
+    currentRow = await writeReportSection(
+      sheet,
+      workbook,
+      currentRow,
+      "Penghasilan Lain",
+      sections.penghasilanLain.rows,
+      detailRows,
+      periode,
+      printDate,
+    );
+
+    sheet.getCell(`B${currentRow}`).value = "Jumlah Penghasilan Lain";
+
+    sheet.getCell(`C${currentRow}`).value = totals.penghasilanLain;
+
     sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+    applyTotalStyle(sheet.getCell(`B${currentRow}`));
+
+    applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
     currentRow += 2;
 
-    /* =========================
-       BEBAN
-    ========================= */
+    /* =====================================================
+       BEBAN ADMINISTRATIF
+       ===================================================== */
 
-    sheet.mergeCells(`A${currentRow}:C${currentRow}`);
+    currentRow = await writeReportSection(
+      sheet,
+      workbook,
+      currentRow,
+      "Beban Administratif",
+      sections.bebanAdministratif.rows,
+      detailRows,
+      periode,
+      printDate,
+    );
 
-    sheet.getCell(`A${currentRow}`).value = "Beban Operasional";
+    sheet.getCell(`B${currentRow}`).value = "Jumlah Beban Administratif";
 
-    applySectionStyle(sheet.getCell(`A${currentRow}`));
+    sheet.getCell(`C${currentRow}`).value = totals.bebanAdministratif;
 
-    currentRow++;
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
-    for (const row of beban) {
-      const detailSheetName = formatSheetName(row.kode, row.nama);
+    applyTotalStyle(sheet.getCell(`B${currentRow}`));
 
-      setInternalHyperlink(
-        sheet.getCell(`B${currentRow}`),
-        row.nama,
-        detailSheetName,
-      );
+    applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
-      sheet.getCell(`C${currentRow}`).value = Math.abs(Number(row.nilai));
+    currentRow += 2;
 
-      sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+    /* =====================================================
+       BEBAN LAIN
+       ===================================================== */
 
-      await createDetailSheet(
+    if (sections.bebanLain.rows.length > 0) {
+      currentRow = await writeReportSection(
+        sheet,
         workbook,
-        row,
-        ledgerRows,
-        periode?.nama_periode ?? "-",
+        currentRow,
+        "Beban Lain",
+        sections.bebanLain.rows,
+        detailRows,
+        periode,
         printDate,
       );
 
-      currentRow++;
+      sheet.getCell(`B${currentRow}`).value = "Jumlah Beban Lain";
+
+      sheet.getCell(`C${currentRow}`).value = totals.bebanLain;
+
+      sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+      applyTotalStyle(sheet.getCell(`B${currentRow}`));
+
+      applyTotalStyle(sheet.getCell(`C${currentRow}`));
+
+      currentRow += 2;
     }
 
-    sheet.getCell(`B${currentRow}`).value = "Total Beban Operasional";
+    /* =====================================================
+       BEBAN PAJAK PENGHASILAN
+       ===================================================== */
 
-    sheet.getCell(`C${currentRow}`).value = totalBeban;
+    currentRow = await writeReportSection(
+      sheet,
+      workbook,
+      currentRow,
+      "Beban Pajak Penghasilan",
+      sections.pajakPenghasilan.rows,
+      detailRows,
+      periode,
+      printDate,
+    );
+
+    sheet.getCell(`B${currentRow}`).value = "Jumlah Beban Pajak Penghasilan";
+
+    sheet.getCell(`C${currentRow}`).value = totals.bebanPajakPenghasilan;
+
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
     applyTotalStyle(sheet.getCell(`B${currentRow}`));
 
     applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
+    currentRow += 2;
+
+    /* =====================================================
+       LABA SEBELUM PAJAK
+       ===================================================== */
+
+    sheet.getCell(`B${currentRow}`).value = "LABA/(RUGI) SEBELUM PAJAK";
+
+    sheet.getCell(`C${currentRow}`).value = totals.labaSebelumPajak;
+
     sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+
+    applyTotalStyle(sheet.getCell(`B${currentRow}`));
+
+    applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
     currentRow += 2;
 
-    /* =========================
+    /* =====================================================
        LABA BERSIH
-    ========================= */
+       ===================================================== */
 
     sheet.getCell(`B${currentRow}`).value = "LABA/(RUGI) BERSIH";
 
-    sheet.getCell(`C${currentRow}`).value = labaBersih;
+    sheet.getCell(`C${currentRow}`).value = totals.labaBersih;
+
+    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
 
     applyTotalStyle(sheet.getCell(`B${currentRow}`));
 
     applyTotalStyle(sheet.getCell(`C${currentRow}`));
 
-    sheet.getCell(`C${currentRow}`).numFmt = ACCOUNTING_FORMAT;
+    currentRow += 3;
 
-    /* =========================
-       MAIN QR
-    ========================= */
+    /* =====================================================
+       DATA ASET MASUK KE SHEET UTAMA LABA RUGI
+       ===================================================== */
+
+    currentRow = writeMainAssetSection(
+      sheet,
+      currentRow,
+      assetRows,
+      assetSummary,
+    );
+
+    /* =====================================================
+       QR CODE LAPORAN
+       ===================================================== */
 
     const qrValue = generateQRCodeValue({
-      id: cleanRows.length,
+      id: detailRows.length,
       sumber_modul: "LABA_RUGI",
-      nilai_transaksi: labaBersih,
+      nilai_transaksi: totals.labaBersih,
       tanggal_transaksi: new Date().toISOString(),
     });
 
@@ -785,15 +2453,34 @@ export async function GET(): Promise<Response> {
       },
     });
 
-    /* =========================
+    /* =====================================================
        SIGNATURE
-    ========================= */
+       ===================================================== */
 
-    addSignature(sheet, currentRow + 8);
+    addSignature(sheet, currentRow);
 
-    /* =========================
-       EXPORT
-    ========================= */
+    /* =====================================================
+       FREEZE / PRINT
+       ===================================================== */
+
+    sheet.views = [
+      {
+        state: "frozen",
+        ySplit: 10,
+      },
+    ];
+
+    sheet.pageSetup.orientation = "portrait";
+
+    sheet.pageSetup.fitToPage = true;
+
+    sheet.pageSetup.fitToWidth = 1;
+
+    sheet.pageSetup.fitToHeight = 0;
+
+    /* =====================================================
+       WRITE BUFFER
+       ===================================================== */
 
     const buffer = await workbook.xlsx.writeBuffer();
 
@@ -807,9 +2494,14 @@ export async function GET(): Promise<Response> {
       },
     });
   } catch (error: unknown) {
+    console.error("LABA RUGI API ERROR:", error);
+
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Unknown error",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Gagal membuat laporan laba rugi.",
       },
       {
         status: 500,

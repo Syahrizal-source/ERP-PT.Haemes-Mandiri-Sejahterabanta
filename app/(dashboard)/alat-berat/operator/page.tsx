@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactElement } from "react";
+
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -15,7 +17,7 @@ import {
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import Swal from 'sweetalert2';
+import Swal from "sweetalert2";
 import Input from "@/components/ui/Input";
 import { useToast } from "@/components/ui/toast-context";
 
@@ -62,7 +64,8 @@ export default function OperatorPage() {
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
   }, []);
 
   const filteredData = useMemo(() => {
@@ -91,7 +94,7 @@ export default function OperatorPage() {
     return filteredData.slice(start, end);
   }, [filteredData, page]);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
       text: "Apakah Anda yakin menghapus Operator ini?",
@@ -119,7 +122,7 @@ export default function OperatorPage() {
     fetchData();
   }
 
-  function renderStatus(status: string): JSX.Element {
+  function renderStatus(status: string): ReactElement {
     if (status === "AKTIF") {
       return (
         <span className="px-2 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded">

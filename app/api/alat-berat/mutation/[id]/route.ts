@@ -51,9 +51,13 @@ export async function PUT(
   const { id } = await context.params;
 
   const body: unknown = await request.json();
+  const bodyRecord =
+    typeof body === "object" && body !== null && !Array.isArray(body)
+      ? body
+      : {};
 
   const parsed = equipmentMutationUpdateSchema.safeParse({
-    ...body,
+    ...bodyRecord,
     id,
   });
 

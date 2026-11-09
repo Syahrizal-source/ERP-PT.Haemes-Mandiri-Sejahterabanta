@@ -42,10 +42,10 @@ export async function buildPPH21ExcelWithQR(
   };
 
   const hash: string = generateReportHash(metadata);
-  const qrBuffer: Buffer = await QRCode.toBuffer(hash);
+  const qrBuffer: string = await QRCode.toDataURL(hash);
 
   const imageId = workbook.addImage({
-    buffer: qrBuffer,
+    base64: qrBuffer.replace(/^data:image\/png;base64,/, ""),
     extension: "png",
   });
 

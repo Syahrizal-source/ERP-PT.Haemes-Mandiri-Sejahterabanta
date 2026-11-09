@@ -36,12 +36,11 @@ export default function KasbonDireksiPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
       text: "Apakah Anda yakin menghapus Kasbon Direksi ini?",

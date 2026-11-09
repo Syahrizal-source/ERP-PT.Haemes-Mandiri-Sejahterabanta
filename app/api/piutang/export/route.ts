@@ -27,7 +27,7 @@ export async function GET(): Promise<NextResponse> {
 
   const buffer = await buildPiutangExcelWithQR(rows);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

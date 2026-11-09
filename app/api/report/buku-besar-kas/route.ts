@@ -9,7 +9,9 @@ import QRCode from "qrcode";
 import { generateQRCodeValue } from "@/lib/helpers/qrcode";
 
 /* =========================
+
    TYPES
+
 ========================= */
 
 interface BukuKasRow {
@@ -59,15 +61,19 @@ interface CoaRow {
 }
 
 /* =========================
+
    FORMAT SHEET NAME
+
 ========================= */
 
 function formatSheetName(kode: string, nama: string): string {
-  return `${kode}-${nama}`.replace(/[\\/*?:[\]]/g, "").substring(0, 31);
+  return `${kode}-${nama}`.replace(/[\\/*?:\[\]]/g, "").substring(0, 31);
 }
 
 /* =========================
+
    HEADER STYLE
+
 ========================= */
 
 function applyHeaderStyle(cell: ExcelJS.Cell): void {
@@ -115,7 +121,9 @@ function applyHeaderStyle(cell: ExcelJS.Cell): void {
 }
 
 /* =========================
+
    CREATE TITLE
+
 ========================= */
 
 function createTitle(sheet: ExcelJS.Worksheet, title: string): void {
@@ -163,7 +171,9 @@ function createTitle(sheet: ExcelJS.Worksheet, title: string): void {
 }
 
 /* =========================
+
    SIGNATURE
+
 ========================= */
 
 function addSignature(sheet: ExcelJS.Worksheet, row: number): void {
@@ -187,13 +197,17 @@ function addSignature(sheet: ExcelJS.Worksheet, row: number): void {
 }
 
 /* =========================
+
    GET
+
 ========================= */
 
 export async function GET(): Promise<Response> {
   try {
     /* =========================
+
        LOAD GENERAL LEDGER
+
     ========================= */
 
     const {
@@ -201,18 +215,29 @@ export async function GET(): Promise<Response> {
 
       error: ledgerError,
     } = await db
+
       .from("v_general_ledger")
+
       .select(
         `
+
         tanggal,
+
         no_bukti,
+
         keterangan,
+
         kode_coa,
+
         nama_coa,
+
         debit,
+
         kredit
+
       `,
       )
+
       .order("tanggal", {
         ascending: true,
       });
@@ -222,7 +247,9 @@ export async function GET(): Promise<Response> {
     }
 
     /* =========================
+
        LOAD MASTER COA KAS
+
     ========================= */
 
     const {
@@ -230,26 +257,42 @@ export async function GET(): Promise<Response> {
 
       error: coaError,
     } = await db
+
       .from("coa")
+
       .select(
         `
+
         kode,
+
         nama
+
       `,
       )
+
       .or(
         [
+          "kode.like.10.101%",
           "kode.like.101%",
+
           "kode.like.11000%",
+
           "kode.like.11001%",
+
           "kode.like.11002%",
+
           "kode.like.11003%",
+
           "kode.like.11010%",
+
           "kode.like.11020%",
+
           "kode.like.11030%",
+
           "kode.like.11040%",
         ].join(","),
       )
+
       .order("kode", {
         ascending: true,
       });
@@ -259,22 +302,27 @@ export async function GET(): Promise<Response> {
     }
 
     /* =========================
+
        NORMALIZE
+
     ========================= */
 
     const rows: BukuKasRow[] = ((ledgerData ?? []) as LedgerQueryRow[])
+
       .filter(
         (item): boolean =>
-          item.kode_coa.startsWith("101") ||
+          item.kode_coa.trim().startsWith("10.101") ||
+          item.kode_coa.trim().startsWith("101") ||
           item.kode_coa.startsWith("11000") ||
-          item.kode_coa.startsWith("11001") ||
-          item.kode_coa.startsWith("11002") ||
-          item.kode_coa.startsWith("11003") ||
-          item.kode_coa.startsWith("11010") ||
-          item.kode_coa.startsWith("11020") ||
-          item.kode_coa.startsWith("11030") ||
-          item.kode_coa.startsWith("11040"),
+          item.kode_coa.trim().startsWith("11001") ||
+          item.kode_coa.trim().startsWith("11002") ||
+          item.kode_coa.trim().startsWith("11003") ||
+          item.kode_coa.trim().startsWith("11010") ||
+          item.kode_coa.trim().startsWith("11020") ||
+          item.kode_coa.trim().startsWith("11030") ||
+          item.kode_coa.trim().startsWith("11040"),
       )
+
       .map(
         (item): BukuKasRow => ({
           tanggal: String(item.tanggal),
@@ -294,7 +342,9 @@ export async function GET(): Promise<Response> {
       );
 
     /* =========================
+
        REMOVE DUPLICATE
+
     ========================= */
 
     const unique = new Map<string, BukuKasRow>();
@@ -302,9 +352,13 @@ export async function GET(): Promise<Response> {
     for (const row of rows) {
       const key = [
         row.tanggal,
+
         row.no_bukti,
+
         row.kode_coa,
+
         row.debit,
+
         row.kredit,
       ].join("-");
 
@@ -316,7 +370,9 @@ export async function GET(): Promise<Response> {
     const cleanRows = Array.from(unique.values());
 
     /* =========================
+
        GROUP ALL COA
+
     ========================= */
 
     const grouped = new Map<string, GroupedKas>();
@@ -336,13 +392,17 @@ export async function GET(): Promise<Response> {
     }
 
     /* =========================
+
        WORKBOOK
+
     ========================= */
 
     const workbook = new ExcelJS.Workbook();
 
     /* =========================
+
        INDEX SHEET
+
     ========================= */
 
     const indexSheet = workbook.addWorksheet("Buku Besar Kas");
@@ -368,14 +428,18 @@ export async function GET(): Promise<Response> {
     let indexRow = 7;
 
     /* =========================
+
        CREATE DETAIL SHEET
+
     ========================= */
 
     for (const [, coaGroup] of grouped) {
       const sheetName = formatSheetName(coaGroup.kode, coaGroup.nama);
 
       /* =========================
+
          INDEX LINK
+
       ========================= */
 
       indexSheet.getCell(`A${indexRow}`).value = indexRow - 6;
@@ -399,7 +463,9 @@ export async function GET(): Promise<Response> {
       };
 
       /* =========================
+
          DETAIL SHEET
+
       ========================= */
 
       const detailSheet = workbook.addWorksheet(sheetName);
@@ -434,10 +500,15 @@ export async function GET(): Promise<Response> {
 
       detailSheet.getRow(6).values = [
         "Tanggal",
+
         "Voucher",
+
         "Keterangan",
+
         "Debit",
+
         "Kredit",
+
         "Saldo",
       ];
 
@@ -446,7 +517,9 @@ export async function GET(): Promise<Response> {
       }
 
       /* =========================
+
          SORT TRANSACTION
+
       ========================= */
 
       const transactions = coaGroup.rows.sort((a, b): number => {
@@ -462,7 +535,9 @@ export async function GET(): Promise<Response> {
       });
 
       /* =========================
+
          DETAIL ROW
+
       ========================= */
 
       let detailRow = 7;
@@ -516,7 +591,9 @@ export async function GET(): Promise<Response> {
       }
 
       /* =========================
+
          SALDO AKHIR
+
       ========================= */
 
       detailSheet.mergeCells(`A${detailRow}:E${detailRow}`);
@@ -536,7 +613,9 @@ export async function GET(): Promise<Response> {
       detailSheet.getCell(`F${detailRow}`).numFmt = "#,##0";
 
       /* =========================
+
          BACK LINK
+
       ========================= */
 
       const backRow = detailRow + 3;
@@ -562,7 +641,9 @@ export async function GET(): Promise<Response> {
       };
 
       /* =========================
+
          QR CODE
+
       ========================= */
 
       const qrValue = generateQRCodeValue({
@@ -586,17 +667,21 @@ export async function GET(): Promise<Response> {
       detailSheet.addImage(imageId, {
         tl: {
           col: 5,
+
           row: 1,
         },
 
         ext: {
           width: 90,
+
           height: 90,
         },
       });
 
       /* =========================
+
          SIGNATURE
+
       ========================= */
 
       addSignature(detailSheet, backRow + 5);
@@ -605,7 +690,9 @@ export async function GET(): Promise<Response> {
     }
 
     /* =========================
+
        EXPORT
+
     ========================= */
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -625,6 +712,7 @@ export async function GET(): Promise<Response> {
       {
         error: error instanceof Error ? error.message : "Unknown error",
       },
+
       {
         status: 500,
       },

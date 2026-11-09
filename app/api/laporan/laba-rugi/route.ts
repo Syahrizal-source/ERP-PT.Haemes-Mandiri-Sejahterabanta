@@ -9,6 +9,12 @@ type LabaRugiRow = {
   nilai: number;
 };
 
+type LabaRugiJoinRow = {
+  debit: number | string;
+  kredit: number | string;
+  coa: { id_coa: number; kode: string; nama: string; tipe: string }[] | null;
+};
+
 export async function GET(req: Request): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
   const idPeriodeParam = searchParams.get("id_periode");
@@ -51,7 +57,8 @@ export async function GET(req: Request): Promise<NextResponse> {
     `,
     )
     .eq("jurnal.is_posted", true)
-    .eq("jurnal.id_periode", id_periode);
+    .eq("jurnal.id_periode", id_periode)
+    .returns<LabaRugiJoinRow[]>();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -60,9 +67,10 @@ export async function GET(req: Request): Promise<NextResponse> {
   const map = new Map<number, LabaRugiRow>();
 
   for (const row of data ?? []) {
-    if (!row.coa) continue;
+    const coa = row.coa?.[0];
+    if (!coa) continue;
 
-    const coa = row.coa as {
+    const coaTyped = coa as {
       id_coa: number;
       kode: string;
       nama: string;
@@ -70,32 +78,32 @@ export async function GET(req: Request): Promise<NextResponse> {
     };
 
     // 🔥 hanya ambil akun laba rugi
-    if (coa.tipe !== "PENDAPATAN" && coa.tipe !== "BEBAN") continue;
+    if (coaTyped.tipe !== "PENDAPATAN" && coaTyped.tipe !== "BEBAN") continue;
 
     const debit = Number(row.debit);
     const kredit = Number(row.kredit);
 
-    if (!map.has(coa.id_coa)) {
-      map.set(coa.id_coa, {
-        id_coa: coa.id_coa,
-        kode: coa.kode,
-        nama: coa.nama,
-        tipe: coa.tipe as "PENDAPATAN" | "BEBAN",
+    if (!map.has(coaTyped.id_coa)) {
+      map.set(coaTyped.id_coa, {
+        id_coa: coaTyped.id_coa,
+        kode: coaTyped.kode,
+        nama: coaTyped.nama,
+        tipe: coaTyped.tipe as "PENDAPATAN" | "BEBAN",
         nilai: 0,
       });
     }
 
-    const current = map.get(coa.id_coa);
+    const current = map.get(coaTyped.id_coa);
     if (!current) continue;
 
     /* =========================
        LOGIKA AKUNTANSI BENAR
     ========================= */
-    if (coa.tipe === "PENDAPATAN") {
+    if (coaTyped.tipe === "PENDAPATAN") {
       current.nilai += kredit - debit;
     }
 
-    if (coa.tipe === "BEBAN") {
+    if (coaTyped.tipe === "BEBAN") {
       current.nilai += debit - kredit;
     }
   }

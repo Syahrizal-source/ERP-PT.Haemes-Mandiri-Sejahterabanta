@@ -18,6 +18,8 @@ import {
   Notebook,
   ClipboardList,
   BarChart3,
+  Calculator,
+  TrendingUp,
 } from "lucide-react";
 
 type MenuItem = {
@@ -36,6 +38,20 @@ export default function DetailProyekPage() {
       label: "Cost Control",
       path: `/proyek/${id}/cost-control`,
       icon: <BarChart3 className="w-4 h-4" />,
+      category: "keuangan",
+    },
+
+    {
+      label: "HPP Proyek",
+      path: `/proyek/${id}/hpp`,
+      icon: <Calculator className="w-4 h-4" />,
+      category: "keuangan",
+    },
+
+    {
+      label: "Pendapatan",
+      path: `/proyek/${id}/pendapatan`,
+      icon: <TrendingUp className="w-4 h-4" />,
       category: "keuangan",
     },
 
@@ -115,6 +131,12 @@ export default function DetailProyekPage() {
     {
       label: "Hutang",
       path: `/proyek/${id}/hutang`,
+      icon: <Wallet className="w-4 h-4" />,
+      category: "keuangan",
+    },
+    {
+      label: "Pembayaran-hutang",
+      path: `/proyek/${id}/pembayaran-hutang`,
       icon: <Wallet className="w-4 h-4" />,
       category: "keuangan",
     },

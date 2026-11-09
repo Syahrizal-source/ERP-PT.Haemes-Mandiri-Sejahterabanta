@@ -1,23 +1,28 @@
 import { NextResponse } from "next/server";
+
 import { db } from "@/lib/supabase/server";
 import { hutangSchema } from "@/lib/validators/hutang";
+import { postHutang } from "@/lib/accounting/postHutang";
 
-type HutangRow = {
+type HutangStatus =
+  | "Unpaid (Menunggu Pembayaran)"
+  | "Partial (Pembayaran Sebagian)"
+  | "Paid (Pembayaran Penuh/ Lunas)";
+
+interface HutangRow {
   id_hutang: number;
   supplier: string;
   no_invoice: string;
   tanggal: string;
   jatuh_tempo: string;
   nilai: number;
-  status:
-    | "Unpaid (Menunggu Pembayaran)"
-    | "Partial (Pembayaran Sebagian)"
-    | "Paid (Pembayaran Penuh/ Lunas)";
-};
+  status: HutangStatus;
+}
 
 /* =========================
    GET: List Hutang
 ========================= */
+
 export async function GET(): Promise<NextResponse> {
   const { data, error } = await db
     .from("hutang")
@@ -31,14 +36,14 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const result: HutangRow[] = data.map((r) => ({
-    id_hutang: r.id_hutang as number,
-    supplier: r.supplier as string,
-    no_invoice: r.no_invoice as string,
-    tanggal: r.tanggal as string,
-    jatuh_tempo: r.jatuh_tempo as string,
-    nilai: Number(r.nilai),
-    status: r.status as HutangRow["status"],
+  const result: HutangRow[] = data.map((row) => ({
+    id_hutang: Number(row.id_hutang),
+    supplier: String(row.supplier),
+    no_invoice: String(row.no_invoice),
+    tanggal: String(row.tanggal),
+    jatuh_tempo: String(row.jatuh_tempo),
+    nilai: Number(row.nilai),
+    status: row.status as HutangStatus,
   }));
 
   return NextResponse.json(result);
@@ -47,128 +52,124 @@ export async function GET(): Promise<NextResponse> {
 /* =========================
    POST: Create Hutang + Jurnal
 ========================= */
+
 export async function POST(req: Request): Promise<NextResponse> {
-  const body: unknown = await req.json();
-  const parsed = hutangSchema.safeParse(body);
+  try {
+    const body: unknown = await req.json();
 
-  if (!parsed.success) {
-    return NextResponse.json(parsed.error.format(), { status: 400 });
-  }
+    if (typeof body !== "object" || body === null) {
+      return NextResponse.json(
+        { error: "Data hutang tidak valid" },
+        { status: 400 },
+      );
+    }
 
-  const { supplier, no_invoice, tanggal, jatuh_tempo, nilai, status } =
-    parsed.data;
+    const parsed = hutangSchema.safeParse(body);
 
-  /* ===============================
-     1️⃣ Insert Hutang
-  ================================ */
-  const { data, error } = await db
-    .from("hutang")
-    .insert({
-      supplier,
-      no_invoice,
+    if (!parsed.success) {
+      return NextResponse.json(parsed.error.format(), { status: 400 });
+    }
+
+    const { supplier, no_invoice, tanggal, jatuh_tempo, nilai, status } =
+      parsed.data;
+
+    if (!Number.isFinite(nilai) || nilai <= 0) {
+      return NextResponse.json(
+        { error: "Nilai hutang tidak valid" },
+        { status: 400 },
+      );
+    }
+
+    /* ===============================
+       1. Cek nomor invoice
+    ================================ */
+
+    const { data: existing, error: existingError } = await db
+      .from("hutang")
+      .select("id_hutang")
+      .eq("no_invoice", no_invoice)
+      .maybeSingle();
+
+    if (existingError) {
+      return NextResponse.json(
+        {
+          error: `Gagal memeriksa nomor invoice hutang: ${existingError.message}`,
+        },
+        { status: 500 },
+      );
+    }
+
+    if (existing) {
+      return NextResponse.json(
+        { error: "No invoice hutang sudah dipakai" },
+        { status: 400 },
+      );
+    }
+
+    /* ===============================
+       2. Insert Hutang
+    ================================ */
+
+    const { data, error } = await db
+      .from("hutang")
+      .insert({
+        supplier,
+        no_invoice,
+        tanggal,
+        jatuh_tempo,
+        nilai,
+        status,
+      })
+      .select("id_hutang,supplier,no_invoice,tanggal,jatuh_tempo,nilai,status")
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json(
+        {
+          error: error?.message ?? "Gagal insert hutang",
+        },
+        { status: 500 },
+      );
+    }
+
+    /* ===============================
+       3. Posting Jurnal
+
+       COA ditentukan otomatis melalui
+       coa_mapping:
+
+       HUTANG / BEBAN
+       → 2655 / 5020 Biaya Pokok Jasa
+
+       HUTANG / HUTANG
+       → 2747 / 21107 Hutang Vendor
+    ================================ */
+
+    const noBukti: string = `HTG-${data.id_hutang}`;
+
+    const jurnalId: number = await postHutang(
       tanggal,
-      jatuh_tempo,
-      nilai,
-      status,
-    })
-    .select("id_hutang,supplier,no_invoice,tanggal,jatuh_tempo,nilai,status")
-    .single();
-
-  if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? "Gagal insert hutang" },
-      { status: 500 },
+      noBukti,
+      `Hutang ke ${supplier}`,
+      Number(nilai),
     );
-  }
 
-  /* ===============================
-     2️⃣ Posting ke Jurnal
-  ================================ */
+    /* ===============================
+       4. Response
+    ================================ */
 
-  // Ambil akun BEBAN
-  const { data: bebanAkun } = await db
-    .from("coa")
-    .select("id_coa")
-    .eq("kode", "5000")
-    .single();
-
-  if (!bebanAkun) {
     return NextResponse.json(
-      { error: "Akun beban tidak ditemukan" },
-      { status: 500 },
+      {
+        ...data,
+        id_jurnal: jurnalId,
+        message: "Hutang berhasil disimpan dan jurnal telah dibuat.",
+      },
+      { status: 201 },
     );
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Gagal membuat hutang";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  // Ambil akun HUTANG USAHA
-  const { data: hutangAkun } = await db
-    .from("coa")
-    .select("id_coa")
-    .eq("kode", "21001")
-    .single();
-
-  if (!hutangAkun) {
-    return NextResponse.json(
-      { error: "Akun hutang tidak ditemukan" },
-      { status: 500 },
-    );
-  }
-
-  // Ambil periode OPEN
-  const { data: periode } = await db
-    .from("periode")
-    .select("id_periode")
-    .eq("status", "OPEN")
-    .limit(1)
-    .single();
-
-  if (!periode) {
-    return NextResponse.json(
-      { error: "Periode OPEN tidak ditemukan" },
-      { status: 500 },
-    );
-  }
-
-  const noBukti = `HTG-${data.id_hutang}`;
-
-  // Insert jurnal header
-  const { data: jurnal, error: jurnalError } = await db
-    .from("jurnal")
-    .insert({
-      tanggal,
-      no_bukti: noBukti,
-      sumber: "KAS_ARMADA",
-      keterangan: `Hutang ke ${supplier}`,
-      id_periode: periode.id_periode,
-    })
-    .select("id_jurnal")
-    .single();
-
-  if (jurnalError || !jurnal) {
-    return NextResponse.json(
-      { error: jurnalError?.message ?? "Gagal membuat jurnal" },
-      { status: 400 },
-    );
-  }
-
-  // Insert jurnal detail
-  const { error: detailError } = await db.from("jurnal_detail").insert([
-    {
-      id_jurnal: jurnal.id_jurnal,
-      id_coa: bebanAkun.id_coa,
-      debit: nilai,
-      kredit: 0,
-    },
-    {
-      id_jurnal: jurnal.id_jurnal,
-      id_coa: hutangAkun.id_coa,
-      debit: 0,
-      kredit: nilai,
-    },
-  ]);
-
-  if (detailError) {
-    return NextResponse.json({ error: detailError.message }, { status: 400 });
-  }
-
-  return NextResponse.json(data, { status: 201 });
 }

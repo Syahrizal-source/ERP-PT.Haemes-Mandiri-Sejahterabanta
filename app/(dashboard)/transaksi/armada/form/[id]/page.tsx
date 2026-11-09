@@ -37,7 +37,6 @@ export default function EditArmadaPage() {
         m3: data["m³"],
       });
     }
-
     fetchData();
   }, [params.id]);
 
@@ -199,11 +198,9 @@ export default function EditArmadaPage() {
             value={form.mel}
             onChange={(e) => handleChange("mel", e.target.value)}
           />
-
           <Input
             label="Tambal Ban"
-            type="number"
-            value={form.tambal_ban}
+            type="number"            value={form.tambal_ban}
             onChange={(e) => handleChange("tambal_ban", e.target.value)}
           />
 

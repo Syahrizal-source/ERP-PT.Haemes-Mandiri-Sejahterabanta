@@ -13,76 +13,52 @@ type PeriodeRow = {
 };
 
 export default function JurnalPenutupPage() {
-  const [periode, setPeriode] = useState<
-    PeriodeRow[]
-  >([]);
+  const [periode, setPeriode] = useState<PeriodeRow[]>([]);
 
-  const [idPeriode, setIdPeriode] =
-    useState<number>(0);
+  const [idPeriode, setIdPeriode] = useState<number>(0);
 
   const [loading, setLoading] =
-    useState<boolean>(false);
+    useState<boolean>(false); /* =========================
+     LOAD PERIODE
+  ========================= */
 
-  /* =========================
-     LOAD PERIODE
-  ========================= */
   useEffect(() => {
     async function fetchPeriode(): Promise<void> {
       try {
-        const res = await fetch(
-          "/api/periode",
-        );
+        const res = await fetch("/api/periode");
 
         if (!res.ok) {
           return;
         }
 
-        const data: PeriodeRow[] =
-          await res.json();
+        const data: PeriodeRow[] = await res.json();
 
-        setPeriode(data);
+        setPeriode(data); /* =========================
+           AUTO PILIH OPEN
+        ========================= */
 
-        /* =========================
-           AUTO PILIH OPEN
-        ========================= */
-        const openPeriode =
-          data.find(
-            (item) =>
-              item.status === "OPEN",
-          );
+        const openPeriode = data.find((item) => item.status === "OPEN");
 
         if (openPeriode) {
-          setIdPeriode(
-            openPeriode.id_periode,
-          );
+          setIdPeriode(openPeriode.id_periode);
         }
       } catch (error) {
-        console.error(
-          "FETCH PERIODE ERROR:",
-          error,
-        );
+        console.error("FETCH PERIODE ERROR:", error);
       }
     }
 
     void fetchPeriode();
-  }, []);
+  }, []); /* =========================
+     CURRENT PERIODE
+  ========================= */
 
-  /* =========================
-     CURRENT PERIODE
-  ========================= */
-  const currentPeriode =
-    periode.find(
-      (item) =>
-        item.id_periode ===
-        idPeriode,
-    );
+  const currentPeriode = periode.find((item) => item.id_periode === idPeriode);
 
   const isOpen: boolean =
-    currentPeriode?.status === "OPEN";
+    currentPeriode?.status === "OPEN"; /* =========================
+     HANDLE CLOSING
+  ========================= */
 
-  /* =========================
-     HANDLE CLOSING
-  ========================= */
   async function handleClosing(): Promise<void> {
     if (idPeriode === 0) {
       await Swal.fire({
@@ -98,8 +74,7 @@ export default function JurnalPenutupPage() {
       await Swal.fire({
         icon: "warning",
         title: "Periode CLOSED",
-        text:
-          "Hanya periode OPEN yang dapat ditutup",
+        text: "Hanya periode OPEN yang dapat ditutup",
       });
 
       return;
@@ -121,38 +96,26 @@ export default function JurnalPenutupPage() {
     try {
       setLoading(true);
 
-      const tanggal: string =
-        new Date()
-          .toISOString()
-          .split("T")[0];
+      const tanggal: string = new Date().toISOString().split("T")[0];
 
-      const res = await fetch(
-        "/api/jurnal-penutup",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            id_periode:
-              idPeriode,
-            tanggal,
-          }),
+      const res = await fetch("/api/jurnal-penutup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          id_periode: idPeriode,
+          tanggal,
+        }),
+      });
 
-      const data =
-        await res.json();
+      const data = await res.json();
 
       if (!res.ok) {
         await Swal.fire({
           icon: "error",
-          title:
-            "Jurnal Penutup Gagal",
-          text:
-            data.error ??
-            "Terjadi kesalahan",
+          title: "Jurnal Penutup Gagal",
+          text: data.error ?? "Terjadi kesalahan",
         });
 
         return;
@@ -161,20 +124,15 @@ export default function JurnalPenutupPage() {
       await Swal.fire({
         icon: "success",
         title: "Berhasil",
-        text:
-          "Jurnal penutup berhasil dibuat",
+        text: "Jurnal penutup berhasil dibuat",
       });
     } catch (error) {
-      console.error(
-        "JURNAL PENUTUP ERROR:",
-        error,
-      );
+      console.error("JURNAL PENUTUP ERROR:", error);
 
       await Swal.fire({
         icon: "error",
         title: "System Error",
-        text:
-          "Terjadi kesalahan sistem",
+        text: "Terjadi kesalahan sistem",
       });
     } finally {
       setLoading(false);
@@ -183,84 +141,72 @@ export default function JurnalPenutupPage() {
 
   return (
     <Card title="Jurnal Penutup">
+           {" "}
       <div className="space-y-4">
+               {" "}
         {/* =========================
-            SELECT PERIODE
-        ========================= */}
+            SELECT PERIODE
+        ========================= */}
+               {" "}
         <div>
+                   {" "}
           <label className="block mb-2 text-sm font-medium">
-            Periode
+                        Periode          {" "}
           </label>
-
+                   {" "}
           <select
             value={idPeriode}
-            onChange={(e) =>
-              setIdPeriode(
-                Number(
-                  e.target.value,
-                ),
-              )
-            }
+            onChange={(e) => setIdPeriode(Number(e.target.value))}
             className="border p-2 w-full rounded-lg"
           >
-            <option value={0}>
-              Pilih Periode
-            </option>
-
+                       {" "}
+            <option value={0}>              Pilih Periode             </option> 
+                     {" "}
             {periode.map((item) => (
-              <option
-                key={
-                  item.id_periode
-                }
-                value={
-                  item.id_periode
-                }
-              >
-                Periode{" "}
-                {
-                  item.nama_periode
-                }{" "}
-                - {item.status}
+              <option key={item.id_periode} value={item.id_periode}>
+                                Periode                 {item.nama_periode}    
+                            - {item.status}             {" "}
               </option>
             ))}
+                     {" "}
           </select>
+                 {" "}
         </div>
-
+               {" "}
         {/* =========================
-            STATUS
-        ========================= */}
+            STATUS
+        ========================= */}
+               {" "}
         <div className="text-sm">
+                   {" "}
           {isOpen ? (
             <span className="text-green-600 font-medium">
-              Status:
-              {" "}
-              OPEN
+                            Status:                             OPEN          
+               {" "}
             </span>
           ) : (
             <span className="text-red-600 font-medium">
-              Status:
-              {" "}
-              CLOSED
+                            Status:                             CLOSED          
+               {" "}
             </span>
           )}
+                 {" "}
         </div>
-
+               {" "}
         {/* =========================
-            BUTTON
-        ========================= */}
+            BUTTON
+        ========================= */}
+               {" "}
         <Button
           onClick={handleClosing}
-          disabled={
-            loading ||
-            !isOpen ||
-            idPeriode === 0
-          }
+          disabled={loading || !isOpen || idPeriode === 0}
         >
-          {loading
-            ? "Memproses..."
-            : "Jalankan Jurnal Penutup"}
+                    {loading ? "Memproses..." : "Jalankan Jurnal Penutup"}     
+           {" "}
         </Button>
+             {" "}
       </div>
+         {" "}
     </Card>
   );
 }

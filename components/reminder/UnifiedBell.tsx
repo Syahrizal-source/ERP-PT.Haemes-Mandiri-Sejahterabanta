@@ -17,7 +17,7 @@ export default function UnifiedBell() {
   const [data, setData] = useState<ReminderItem[]>([]);
   const [open, setOpen] = useState<boolean>(false);
 
-  const prevIds = useRef<number[]>([]);
+  const prevIds = useRef<string[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const soundEnabled = useRef<boolean>(false);
 
@@ -66,6 +66,7 @@ export default function UnifiedBell() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
     const i = setInterval(fetchData, 30000);
     return () => clearInterval(i);
@@ -83,6 +84,7 @@ export default function UnifiedBell() {
 
   function getColor(dateStr: string): string {
     const diff =
+      // eslint-disable-next-line react-hooks/purity
       (new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
 
     if (diff < 0) return "bg-red-50 border-l-4 border-red-500";

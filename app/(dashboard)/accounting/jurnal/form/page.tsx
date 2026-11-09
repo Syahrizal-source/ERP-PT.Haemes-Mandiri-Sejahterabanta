@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Swal from "sweetalert2";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 
 import Card from "@/components/ui/Card";
@@ -19,6 +20,23 @@ interface DetailInput {
   kredit: number;
 }
 
+interface Periode {
+  id_periode: number;
+  status: "OPEN" | "CLOSED";
+}
+
+interface ApiErrorResponse {
+  message?: string;
+  error?: string;
+  issues?: unknown;
+}
+
+interface ZodIssue {
+  code?: string;
+  path?: Array<string | number>;
+  message?: string;
+}
+
 export default function JurnalFormPage() {
   const router = useRouter();
 
@@ -27,16 +45,30 @@ export default function JurnalFormPage() {
   const [keterangan, setKeterangan] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [activePeriodeId, setActivePeriodeId] = useState<number>(0);
-
   const [coaList, setCoaList] = useState<Coa[]>([]);
+
   const [details, setDetails] = useState<DetailInput[]>([
-    { id_coa: null, debit: 0, kredit: 0 },
-    { id_coa: null, debit: 0, kredit: 0 },
+    {
+      id_coa: null,
+      debit: 0,
+      kredit: 0,
+    },
+    {
+      id_coa: null,
+      debit: 0,
+      kredit: 0,
+    },
   ]);
 
   async function fetchCoa(): Promise<void> {
     const res = await fetch("/api/coa");
+
+    if (!res.ok) {
+      throw new Error("Gagal mengambil daftar COA.");
+    }
+
     const data: Coa[] = await res.json();
+
     setCoaList(data);
   }
 
@@ -44,14 +76,18 @@ export default function JurnalFormPage() {
     const today = new Date();
 
     const yyyy = today.getFullYear();
-
     const mm = String(today.getMonth() + 1).padStart(2, "0");
-
     const dd = String(today.getDate()).padStart(2, "0");
 
     const prefix = `JU-${yyyy}${mm}${dd}`;
 
-    const res = await fetch(`/api/jurnal/next-number?prefix=${prefix}`);
+    const res = await fetch(
+      `/api/jurnal/next-number?prefix=${encodeURIComponent(prefix)}`,
+    );
+
+    if (!res.ok) {
+      throw new Error("Gagal membuat nomor bukti jurnal.");
+    }
 
     const data: {
       next_number: string;
@@ -64,31 +100,43 @@ export default function JurnalFormPage() {
     const res = await fetch("/api/periode");
 
     if (!res.ok) {
-      return;
+      throw new Error("Gagal mengambil periode akuntansi.");
     }
 
-    const result: {
-      id_periode: number;
-      status: "OPEN" | "CLOSED";
-    }[] = await res.json();
+    const result: Periode[] = await res.json();
 
     const openPeriode = result.find((item) => item.status === "OPEN");
 
     if (openPeriode) {
       setActivePeriodeId(openPeriode.id_periode);
+      return;
     }
+
+    throw new Error("Tidak ada periode akuntansi yang sedang OPEN.");
   }
 
   useEffect(() => {
     async function initialize(): Promise<void> {
-      await fetchCoa();
+      try {
+        await Promise.all([
+          fetchCoa(),
+          fetchActivePeriode(),
+          generateNoBukti(),
+        ]);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Gagal memuat form jurnal.";
 
-      await fetchActivePeriode();
-
-      await generateNoBukti();
+        await Swal.fire({
+          icon: "error",
+          title: "Gagal Memuat Form",
+          text: message,
+          confirmButtonText: "OK",
+        });
+      }
     }
 
-    initialize().catch(console.error);
+    void initialize();
   }, []);
 
   function updateDetail(
@@ -96,153 +144,442 @@ export default function JurnalFormPage() {
     field: keyof DetailInput,
     value: number | null,
   ): void {
-    const newDetails = [...details];
-    newDetails[index] = {
-      ...newDetails[index],
-      [field]: value,
-    };
-    setDetails(newDetails);
+    setDetails((currentDetails) => {
+      const newDetails = [...currentDetails];
+
+      newDetails[index] = {
+        ...newDetails[index],
+        [field]: value,
+      };
+
+      return newDetails;
+    });
   }
 
   function addRow(): void {
-    setDetails([...details, { id_coa: null, debit: 0, kredit: 0 }]);
+    setDetails((currentDetails) => [
+      ...currentDetails,
+      {
+        id_coa: null,
+        debit: 0,
+        kredit: 0,
+      },
+    ]);
   }
 
   function removeRow(index: number): void {
-    const newDetails = details.filter((_, i) => i !== index);
-    setDetails(newDetails);
+    if (details.length <= 2) {
+      void Swal.fire({
+        icon: "info",
+        title: "Baris Tidak Dapat Dihapus",
+        text: "Jurnal umum minimal memiliki 2 baris detail.",
+        confirmButtonText: "OK",
+      });
+
+      return;
+    }
+
+    setDetails((currentDetails) =>
+      currentDetails.filter((_, i) => i !== index),
+    );
   }
 
   function totalDebit(): number {
-    return details.reduce((sum, d) => sum + d.debit, 0);
+    return details.reduce((sum, detail) => sum + detail.debit, 0);
   }
 
   function totalKredit(): number {
-    return details.reduce((sum, d) => sum + d.kredit, 0);
+    return details.reduce((sum, detail) => sum + detail.kredit, 0);
+  }
+
+  function formatRupiah(value: number): string {
+    return value.toLocaleString("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function getCoaLabel(idCoa: number | null): string {
+    if (idCoa === null) {
+      return "COA belum dipilih";
+    }
+
+    const coa = coaList.find((item) => item.id_coa === idCoa);
+
+    if (!coa) {
+      return `COA ID ${idCoa}`;
+    }
+
+    return `${coa.kode} - ${coa.nama}`;
+  }
+
+  function showValidationError(message: string): void {
+    void Swal.fire({
+      icon: "warning",
+      title: "Data Jurnal Belum Lengkap",
+      text: message,
+      confirmButtonText: "Periksa Data",
+    });
+  }
+
+  function parseApiIssues(value: unknown): string | null {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+
+    const issues = value as ZodIssue[];
+
+    const messages = issues
+      .map((issue) => {
+        const path = issue.path ?? [];
+        const message = issue.message?.trim();
+
+        if (!message) {
+          return null;
+        }
+
+        if (path.includes("tanggal")) {
+          return "Tanggal jurnal wajib diisi dengan format tanggal yang benar.";
+        }
+
+        if (path.includes("no_bukti")) {
+          return "Nomor bukti jurnal wajib diisi.";
+        }
+
+        if (path.includes("keterangan")) {
+          return "Keterangan jurnal wajib diisi.";
+        }
+
+        if (path.includes("details")) {
+          return `Detail jurnal tidak valid: ${message}`;
+        }
+
+        return message;
+      })
+      .filter((message): message is string => message !== null);
+
+    if (messages.length === 0) {
+      return null;
+    }
+
+    return [...new Set(messages)].join("\n");
+  }
+
+  async function readApiError(res: Response): Promise<string> {
+    try {
+      const result: ApiErrorResponse = await res.json();
+
+      const issueMessage = parseApiIssues(result.issues);
+
+      if (issueMessage) {
+        return issueMessage;
+      }
+
+      if (typeof result.message === "string") {
+        const trimmedMessage = result.message.trim();
+
+        /*
+         * Beberapa endpoint lama mengembalikan
+         * error Zod sebagai JSON string.
+         * Kita coba parse supaya tidak tampil mentah.
+         */
+        if (trimmedMessage.startsWith("[") && trimmedMessage.endsWith("]")) {
+          try {
+            const parsed: unknown = JSON.parse(trimmedMessage);
+
+            const parsedMessage = parseApiIssues(parsed);
+
+            if (parsedMessage) {
+              return parsedMessage;
+            }
+          } catch {
+            // Abaikan dan gunakan message asli.
+          }
+        }
+
+        if (trimmedMessage.length > 0) {
+          return trimmedMessage;
+        }
+      }
+
+      if (typeof result.error === "string") {
+        const trimmedError = result.error.trim();
+
+        if (trimmedError.length > 0) {
+          return trimmedError;
+        }
+      }
+
+      return "Gagal menyimpan jurnal.";
+    } catch {
+      return "Gagal menyimpan jurnal. Silakan coba lagi.";
+    }
+  }
+
+  function validateForm(): string | null {
+    if (!tanggal.trim()) {
+      return "Tanggal jurnal wajib diisi.";
+    }
+
+    /*
+     * Validasi HTML date menghasilkan YYYY-MM-DD.
+     * Panjang minimal 10 mengikuti validator backend.
+     */
+    if (tanggal.length < 10) {
+      return "Tanggal jurnal tidak valid.";
+    }
+
+    if (!noBukti.trim()) {
+      return "Nomor bukti jurnal belum tersedia.";
+    }
+
+    if (!keterangan.trim()) {
+      return "Keterangan jurnal wajib diisi.";
+    }
+
+    if (activePeriodeId <= 0) {
+      return "Periode akuntansi OPEN belum tersedia.";
+    }
+
+    if (details.length < 2) {
+      return "Jurnal minimal memiliki 2 baris detail.";
+    }
+
+    for (let index = 0; index < details.length; index += 1) {
+      const detail = details[index];
+      const rowNumber = index + 1;
+
+      if (detail.id_coa === null) {
+        return `COA pada baris ${rowNumber} wajib dipilih.`;
+      }
+
+      if (!Number.isInteger(detail.id_coa) || detail.id_coa <= 0) {
+        return `COA pada baris ${rowNumber} tidak valid.`;
+      }
+
+      if (!Number.isFinite(detail.debit) || detail.debit < 0) {
+        return `Nilai debit pada baris ${rowNumber} tidak valid.`;
+      }
+
+      if (!Number.isFinite(detail.kredit) || detail.kredit < 0) {
+        return `Nilai kredit pada baris ${rowNumber} tidak valid.`;
+      }
+
+      if (detail.debit > 0 && detail.kredit > 0) {
+        return `Baris ${rowNumber} tidak boleh memiliki Debit dan Kredit sekaligus. Pilih salah satu.`;
+      }
+
+      if (detail.debit === 0 && detail.kredit === 0) {
+        return `Baris ${rowNumber} belum memiliki nilai Debit atau Kredit.`;
+      }
+
+      const coa = coaList.find((item) => item.id_coa === detail.id_coa);
+
+      if (!coa) {
+        return `COA pada baris ${rowNumber} tidak ditemukan.`;
+      }
+    }
+
+    const debit = totalDebit();
+    const kredit = totalKredit();
+
+    if (debit <= 0 && kredit <= 0) {
+      return "Jurnal belum memiliki nilai transaksi.";
+    }
+
+    if (Math.abs(debit - kredit) > 0.01) {
+      return (
+        `Jurnal belum balance.\n` +
+        `Debit: Rp ${formatRupiah(debit)}\n` +
+        `Kredit: Rp ${formatRupiah(kredit)}`
+      );
+    }
+
+    return null;
   }
 
   async function handleSubmit(): Promise<void> {
+    if (loading) {
+      return;
+    }
+
+    const validationMessage = validateForm();
+
+    if (validationMessage) {
+      showValidationError(validationMessage);
+      return;
+    }
+
+    const confirmResult = await Swal.fire({
+      icon: "question",
+      title: "Simpan Jurnal?",
+      html: `
+        <div style="text-align:left">
+          <div><strong>No Bukti:</strong> ${noBukti}</div>
+          <div><strong>Tanggal:</strong> ${tanggal}</div>
+          <div><strong>Debit:</strong> Rp ${formatRupiah(totalDebit())}</div>
+          <div><strong>Kredit:</strong> Rp ${formatRupiah(totalKredit())}</div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: "Ya, Simpan",
+      cancelButtonText: "Batal",
+      reverseButtons: true,
+    });
+
+    if (!confirmResult.isConfirmed) {
+      return;
+    }
+
     try {
-      if (loading) {
-        return;
-      }
-
       setLoading(true);
-
-      if (totalDebit() !== totalKredit()) {
-        alert("Debit dan Kredit harus balance");
-
-        return;
-      }
 
       const payload = {
         tanggal,
-
-        no_bukti: noBukti,
-
-        keterangan,
-
+        no_bukti: noBukti.trim(),
+        keterangan: keterangan.trim(),
         sumber: "UMUM",
-
         id_periode: activePeriodeId,
-
         is_posted: true,
-
-        details: details
-          .filter((d): boolean => d.id_coa !== null)
-          .map((d) => ({
-            id_coa: Number(d.id_coa),
-
-            debit: d.debit,
-
-            kredit: d.kredit,
-          })),
+        details: details.map((detail) => ({
+          id_coa: Number(detail.id_coa),
+          debit: detail.debit,
+          kredit: detail.kredit,
+        })),
       };
 
       const res = await fetch("/api/jurnal", {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify(payload),
       });
 
-      const result: {
-        message?: string;
-      } = await res.json();
-
       if (!res.ok) {
-        alert(result.message ?? "Gagal menyimpan jurnal");
+        const message = await readApiError(res);
+
+        await Swal.fire({
+          icon: "error",
+          title: "Jurnal Gagal Disimpan",
+          text: message,
+          confirmButtonText: "OK",
+        });
 
         return;
       }
 
+      await Swal.fire({
+        icon: "success",
+        title: "Jurnal Berhasil Disimpan",
+        html: `
+          <div style="text-align:center">
+            <div>Jurnal umum berhasil diposting.</div>
+            <div style="margin-top:8px">
+              <strong>No Bukti: ${noBukti}</strong>
+            </div>
+          </div>
+        `,
+        confirmButtonText: "OK",
+      });
+
       router.push("/accounting/jurnal");
     } catch (error: unknown) {
       const message =
-        error instanceof Error ? error.message : "Terjadi kesalahan";
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat menyimpan jurnal.";
 
-      alert(message);
+      await Swal.fire({
+        icon: "error",
+        title: "Terjadi Kesalahan",
+        text: message,
+        confirmButtonText: "OK",
+      });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl">
       <Card title="Tambah Jurnal Umum">
         {/* HEADER */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="mb-6 grid grid-cols-2 gap-4">
           <div>
-            <label className="text-sm">Tanggal</label>
+            <label htmlFor="tanggal" className="text-sm font-medium">
+              Tanggal
+            </label>
+
             <input
+              id="tanggal"
               type="date"
-              className="w-full border px-3 py-2 rounded"
+              className="w-full rounded border px-3 py-2"
               value={tanggal}
               onChange={(e) => setTanggal(e.target.value)}
             />
           </div>
 
           <div>
-            <label className="text-sm">No Bukti</label>
+            <label htmlFor="no-bukti" className="text-sm font-medium">
+              No Bukti
+            </label>
+
             <input
+              id="no-bukti"
               type="text"
               readOnly
-              className="w-full border px-3 py-2 rounded"
+              className="w-full rounded border bg-gray-100 px-3 py-2"
               value={noBukti}
-              onChange={(e) => setNoBukti(e.target.value)}
             />
           </div>
 
           <div className="col-span-2">
-            <label className="text-sm">Keterangan</label>
+            <label htmlFor="keterangan" className="text-sm font-medium">
+              Keterangan
+            </label>
+
             <input
+              id="keterangan"
               type="text"
-              className="w-full border px-3 py-2 rounded"
+              className="w-full rounded border px-3 py-2"
               value={keterangan}
               onChange={(e) => setKeterangan(e.target.value)}
+              placeholder="Masukkan keterangan jurnal"
             />
           </div>
         </div>
 
         {/* DETAIL */}
-        <div className="space-y-3 mb-6">
+        <div className="mb-6 space-y-3">
+          <div className="grid grid-cols-12 gap-2 text-sm font-semibold">
+            <div className="col-span-6">COA</div>
+            <div className="col-span-2 text-right">Debit</div>
+            <div className="col-span-2 text-right">Kredit</div>
+            <div className="col-span-2 text-center">Aksi</div>
+          </div>
+
           {details.map((row, index) => (
             <div key={index} className="grid grid-cols-12 gap-2">
               {/* COA */}
               <select
-                className="col-span-6 border px-2 py-2 rounded"
+                className="col-span-6 rounded border px-2 py-2"
                 value={row.id_coa ?? ""}
-                onChange={(e) =>
-                  updateDetail(index, "id_coa", Number(e.target.value))
-                }
+                onChange={(e) => {
+                  const value = e.target.value;
+
+                  updateDetail(
+                    index,
+                    "id_coa",
+                    value === "" ? null : Number(value),
+                  );
+                }}
               >
                 <option value="">Pilih COA</option>
-                {coaList.map((c) => (
-                  <option key={c.id_coa} value={c.id_coa}>
-                    {c.kode} - {c.nama}
+
+                {coaList.map((coa) => (
+                  <option key={coa.id_coa} value={coa.id_coa}>
+                    {coa.kode} - {coa.nama}
                   </option>
                 ))}
               </select>
@@ -250,38 +587,62 @@ export default function JurnalFormPage() {
               {/* DEBIT */}
               <input
                 type="number"
-                className="col-span-2 border px-2 py-2 rounded text-right"
+                min="0"
+                step="0.01"
+                className="col-span-2 rounded border px-2 py-2 text-right"
                 value={row.debit}
                 onChange={(e) =>
-                  updateDetail(index, "debit", Number(e.target.value))
+                  updateDetail(index, "debit", Number(e.target.value) || 0)
                 }
               />
 
               {/* KREDIT */}
               <input
                 type="number"
-                className="col-span-2 border px-2 py-2 rounded text-right"
+                min="0"
+                step="0.01"
+                className="col-span-2 rounded border px-2 py-2 text-right"
                 value={row.kredit}
                 onChange={(e) =>
-                  updateDetail(index, "kredit", Number(e.target.value))
+                  updateDetail(index, "kredit", Number(e.target.value) || 0)
                 }
               />
 
               {/* DELETE */}
               <button
+                type="button"
                 onClick={() => removeRow(index)}
-                className="col-span-2 text-red-500"
+                className="col-span-2 flex items-center justify-center text-red-500 hover:text-red-700"
+                title={`Hapus baris ${index + 1}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="h-4 w-4" />
               </button>
             </div>
           ))}
         </div>
 
         {/* TOTAL */}
-        <div className="flex justify-end gap-6 mb-6 text-sm font-semibold">
-          <div>Debit: {totalDebit().toLocaleString("id-ID")}</div>
-          <div>Kredit: {totalKredit().toLocaleString("id-ID")}</div>
+        <div className="mb-6 flex justify-end gap-6 text-sm font-semibold">
+          <div>Debit: Rp {formatRupiah(totalDebit())}</div>
+
+          <div>Kredit: Rp {formatRupiah(totalKredit())}</div>
+        </div>
+
+        {/* BALANCE STATUS */}
+        <div className="mb-6 rounded border px-4 py-3 text-sm">
+          {Math.abs(totalDebit() - totalKredit()) <= 0.01 ? (
+            <div className="font-medium text-green-600">
+              ✓ Debit dan Kredit sudah balance.
+            </div>
+          ) : (
+            <div className="font-medium text-red-600">
+              ✕ Jurnal belum balance.
+              <div className="mt-1 font-normal">
+                Selisih: Rp{" "}
+                {formatRupiah(Math.abs(totalDebit() - totalKredit()))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ACTION */}
@@ -289,18 +650,24 @@ export default function JurnalFormPage() {
           <Button
             variant="secondary"
             onClick={() => router.push("/accounting/jurnal")}
+            disabled={loading}
           >
-            <ArrowLeft className="w-4 h-4 mr-2" />
+            <ArrowLeft className="mr-2 h-4 w-4" />
             Kembali
           </Button>
 
-          <Button onClick={addRow}>
-            <Plus className="w-4 h-4 mr-2" />
+          <Button onClick={addRow} disabled={loading}>
+            <Plus className="mr-2 h-4 w-4" />
             Tambah Baris
           </Button>
 
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? "Menyimpan..." : "Simpan"}
+          <Button
+            onClick={() => {
+              void handleSubmit();
+            }}
+            disabled={loading}
+          >
+            {loading ? "Menyimpan..." : "Simpan Jurnal"}
           </Button>
         </div>
       </Card>

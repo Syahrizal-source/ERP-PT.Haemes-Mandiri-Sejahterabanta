@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import QRCode from "qrcode";
-import { calcDepresiasiBulanan } from "@/lib/aset/calc-depresiasi";
+import { calcDepresiasi } from "@/lib/aset/calc-depresiasi";
 
 type AsetExportRow = {
   id_aset: number;
@@ -30,10 +30,10 @@ export async function buildAsetExcelWithQR(
     const r = rows[i];
     const rowIndex = i + 2;
 
-    const depresiasiBulanan = calcDepresiasiBulanan(
+    const depresiasiBulanan = calcDepresiasi(
       r.nilai_perolehan,
       r.umur_manfaat,
-    );
+    ).depresiasiBulanan;
 
     sheet.addRow({
       ...r,

@@ -11,6 +11,19 @@ type TrialBalanceRow = {
   saldo: number;
 };
 
+type TrialBalanceJoinRow = {
+  debit: number | string;
+  kredit: number | string;
+  coa:
+    | {
+        id_coa: number;
+        kode: string;
+        nama: string;
+        tipe: TrialBalanceRow["tipe"];
+      }[]
+    | null;
+};
+
 export async function GET(req: Request): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
   const idPeriodeParam = searchParams.get("id_periode");
@@ -49,7 +62,8 @@ export async function GET(req: Request): Promise<NextResponse> {
     `,
     )
     .eq("jurnal.is_posted", true)
-    .eq("jurnal.id_periode", id_periode);
+    .eq("jurnal.id_periode", id_periode)
+    .returns<TrialBalanceJoinRow[]>();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -58,9 +72,10 @@ export async function GET(req: Request): Promise<NextResponse> {
   const map = new Map<number, TrialBalanceRow>();
 
   for (const row of data ?? []) {
-    if (!row.coa) continue;
+    const coa = row.coa?.[0];
+    if (!coa) continue;
 
-    const coa = row.coa as {
+    const coaTyped = coa as {
       id_coa: number;
       kode: string;
       nama: string;
@@ -70,25 +85,25 @@ export async function GET(req: Request): Promise<NextResponse> {
     const debit = Number(row.debit);
     const kredit = Number(row.kredit);
 
-    if (!map.has(coa.id_coa)) {
-      map.set(coa.id_coa, {
-        id_coa: coa.id_coa,
-        kode: coa.kode,
-        nama: coa.nama,
-        tipe: coa.tipe,
+    if (!map.has(coaTyped.id_coa)) {
+      map.set(coaTyped.id_coa, {
+        id_coa: coaTyped.id_coa,
+        kode: coaTyped.kode,
+        nama: coaTyped.nama,
+        tipe: coaTyped.tipe,
         total_debit: 0,
         total_kredit: 0,
         saldo: 0,
       });
     }
 
-    const current = map.get(coa.id_coa);
+    const current = map.get(coaTyped.id_coa);
     if (!current) continue;
 
     current.total_debit += debit;
     current.total_kredit += kredit;
 
-    if (coa.tipe === "ASET" || coa.tipe === "BEBAN") {
+    if (coaTyped.tipe === "ASET" || coaTyped.tipe === "BEBAN") {
       current.saldo = current.total_debit - current.total_kredit;
     } else {
       current.saldo = current.total_kredit - current.total_debit;

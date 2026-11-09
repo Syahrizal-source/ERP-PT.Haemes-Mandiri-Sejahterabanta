@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { JSX, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2, Eye, Pencil, Trash2 } from "lucide-react";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import ConfirmModal from "@/components/ui/confirm-dialog";
-import { ProyekMaster } from "@/types/proyek";
 import { useToast } from "@/components/ui/toast-context";
+import type { ProyekMaster } from "@/types/proyek";
 
-export default function ProyekListPage() {
+interface DeleteResponse {
+  error?: string;
+  message?: string;
+}
+
+interface ProyekListResponse {
+  data?: ProyekMaster[];
+  error?: string;
+}
+
+export default function ProyekListPage(): JSX.Element {
   const router = useRouter();
   const { showToast } = useToast();
 
@@ -19,116 +29,269 @@ export default function ProyekListPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
+  /* =========================================================
+     FORMAT RUPIAH
+  ========================================================= */
+
+  function formatRupiah(value: number | string | null): string {
+    const nominal: number = Number(value ?? 0);
+
+    if (!Number.isFinite(nominal)) {
+      return "Rp0";
+    }
+
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(nominal);
+  }
+
+  /* =========================================================
+     NORMALIZE RESPONSE
+     
+     API existing bisa mengembalikan:
+     
+     1. array langsung
+     2. { data: [...] }
+     
+     Kita dukung keduanya tanpa mengubah backend.
+  ========================================================= */
+
+  function parseProyekResponse(result: unknown): ProyekMaster[] {
+    if (Array.isArray(result)) {
+      return result as ProyekMaster[];
+    }
+
+    if (typeof result === "object" && result !== null && "data" in result) {
+      const response: ProyekListResponse = result as ProyekListResponse;
+
+      if (Array.isArray(response.data)) {
+        return response.data;
+      }
+    }
+
+    return [];
+  }
+
+  /* =========================================================
+     GET DATA
+  ========================================================= */
+
   async function fetchData(): Promise<void> {
     setLoading(true);
 
-    const res = await fetch("/api/proyek/master");
-    if (!res.ok) {
-      showToast("Gagal mengambil data proyek", "error");
+    try {
+      const res: Response = await fetch("/api/proyek/master", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result: unknown = await res.json();
+
+      if (!res.ok) {
+        const response: ProyekListResponse =
+          typeof result === "object" && result !== null
+            ? (result as ProyekListResponse)
+            : {};
+
+        showToast(response.error ?? "Gagal mengambil data proyek", "error");
+
+        return;
+      }
+
+      const projects: ProyekMaster[] = parseProyekResponse(result);
+
+      setData(projects);
+    } catch (error: unknown) {
+      console.error("GET PROYEK MASTER ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Gagal mengambil data proyek",
+        "error",
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const result = await res.json();
-    console.log(result);
-
-    setData(result);
-    setLoading(false);
   }
 
+  /* =========================================================
+     INITIAL LOAD
+  ========================================================= */
+
   useEffect(() => {
-    fetchData(); // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
   }, []);
 
+  /* =========================================================
+     DELETE
+     
+     Catatan:
+     DELETE tetap melalui API.
+     Halaman tidak menyentuh jurnal/COA secara langsung.
+  ========================================================= */
+
   async function handleDelete(): Promise<void> {
-    if (!deleteId) return;
-
-    setLoadingId(deleteId);
-
-    const res = await fetch(`/api/proyek/master/${deleteId}`, {
-      method: "DELETE",
-    });
-
-    setLoadingId(null);
-    setDeleteId(null);
-
-    if (!res.ok) {
-      const err = await res.json();
-      showToast(err.error ?? "Gagal menghapus proyek", "error");
+    if (deleteId === null) {
       return;
     }
 
-    showToast("Proyek berhasil dihapus", "success");
-    fetchData();
+    const id: string = deleteId;
+
+    setLoadingId(id);
+
+    try {
+      const res: Response = await fetch(`/api/proyek/master/${id}`, {
+        method: "DELETE",
+      });
+
+      const result: unknown = await res.json();
+
+      if (!res.ok) {
+        const response: DeleteResponse =
+          typeof result === "object" && result !== null
+            ? (result as DeleteResponse)
+            : {};
+
+        showToast(response.error ?? "Gagal menghapus proyek", "error");
+
+        return;
+      }
+
+      showToast("Proyek berhasil dihapus", "success");
+
+      setDeleteId(null);
+
+      await fetchData();
+    } catch (error: unknown) {
+      console.error("DELETE PROYEK MASTER ERROR:", error);
+
+      showToast(
+        error instanceof Error ? error.message : "Gagal menghapus proyek",
+        "error",
+      );
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
+  /* =========================================================
+     STATUS DISPLAY
+  ========================================================= */
+
+  function formatStatus(status: ProyekMaster["status"]): string {
+    if (!status) {
+      return "-";
+    }
+
+    return String(status)
+      .replaceAll("_", " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (character: string) => character.toUpperCase());
   }
 
   return (
     <>
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto max-w-7xl">
         <Card title="Daftar Proyek">
-          <div className="flex justify-between mb-4">
-            <div />
+          {/* =================================================
+              HEADER
+          ================================================= */}
+
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Master proyek perusahaan</p>
+            </div>
+
             <Button onClick={() => router.push("/proyek/form")}>
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               Tambah Proyek
             </Button>
           </div>
 
+          {/* =================================================
+              LOADING
+          ================================================= */}
+
           {loading ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Memuat data...
+            <div className="flex items-center gap-2 py-6 text-sm text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Memuat data proyek...
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full border text-sm">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="border px-3 py-2">Kode</th>
-                    <th className="border px-3 py-2">Nama</th>
-                    <th className="border px-3 py-2">Jenis Proyek</th>
-                    <th className="border px-3 py-2">Customer</th>
-                    <th className="border px-3 py-2">Nilai Kontrak</th>
-                    <th className="border px-3 py-2">Status</th>
+                    <th className="border px-3 py-2 text-left">Kode</th>
+
+                    <th className="border px-3 py-2 text-left">Nama</th>
+
+                    <th className="border px-3 py-2 text-left">Jenis Proyek</th>
+
+                    <th className="border px-3 py-2 text-left">Customer</th>
+
+                    <th className="border px-3 py-2 text-right">
+                      Nilai Kontrak
+                    </th>
+
+                    <th className="border px-3 py-2 text-left">Status</th>
+
                     <th className="border px-3 py-2 text-center">Aksi</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {data.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-4">
-                        Tidak ada data
+                      <td
+                        colSpan={7}
+                        className="border px-3 py-6 text-center text-gray-500"
+                      >
+                        Tidak ada data proyek
                       </td>
                     </tr>
                   ) : (
-                    data.map((item) => (
-                      <tr key={item.id}>
-                        <td className="border px-3 py-2">{item.kode_proyek}</td>
+                    data.map((item: ProyekMaster) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        {/* KODE */}
+                        <td className="border px-3 py-2 font-medium">
+                          {item.kode_proyek}
+                        </td>
+
+                        {/* NAMA */}
                         <td className="border px-3 py-2">{item.nama_proyek}</td>
+
+                        {/* JENIS */}
                         <td className="border px-3 py-2">
-                          {item.jenis_proyek}
+                          {item.jenis_proyek ?? "-"}
                         </td>
+
+                        {/* CUSTOMER */}
                         <td className="border px-3 py-2">{item.customer}</td>
+
+                        {/* NILAI KONTRAK */}
                         <td className="border px-3 py-2 text-right">
-                          {new Intl.NumberFormat("id-ID", {
-                            style: "currency",
-                            currency: "IDR",
-                            minimumFractionDigits: 0,
-                          }).format(item.nilai_kontrak)}
+                          {formatRupiah(item.nilai_kontrak)}
                         </td>
+
+                        {/* STATUS */}
                         <td className="border px-3 py-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium">
-                            {item.status}
-                          </span>
+                          {formatStatus(item.status)}
                         </td>
+
+                        {/* AKSI */}
                         <td className="border px-3 py-2">
                           <div className="flex justify-center gap-2">
                             {/* DETAIL */}
                             <Button
                               variant="secondary"
                               onClick={() => router.push(`/proyek/${item.id}`)}
+                              title="Detail proyek"
                             >
-                              <Eye className="w-4 h-4" />
+                              <Eye className="h-4 w-4" />
                             </Button>
 
                             {/* UPDATE */}
@@ -137,8 +300,9 @@ export default function ProyekListPage() {
                               onClick={() =>
                                 router.push(`/proyek/${item.id}/edit`)
                               }
+                              title="Edit proyek"
                             >
-                              <Pencil className="w-4 h-4" />
+                              <Pencil className="h-4 w-4" />
                             </Button>
 
                             {/* DELETE */}
@@ -146,11 +310,12 @@ export default function ProyekListPage() {
                               variant="destructive"
                               disabled={loadingId === item.id}
                               onClick={() => setDeleteId(item.id)}
+                              title="Hapus proyek"
                             >
                               {loadingId === item.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="h-4 w-4" />
                               )}
                             </Button>
                           </div>
@@ -164,6 +329,10 @@ export default function ProyekListPage() {
           )}
         </Card>
       </div>
+
+      {/* =====================================================
+          CONFIRM DELETE
+      ===================================================== */}
 
       <ConfirmModal
         open={deleteId !== null}

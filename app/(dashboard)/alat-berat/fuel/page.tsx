@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2, Eye, Pencil, Trash2 } from "lucide-react";
-import Swal from 'sweetalert2';
+import Swal from "sweetalert2";
 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import ConfirmModal from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast-context";
 
 interface Fuel {
@@ -50,10 +49,11 @@ export default function FuelPage() {
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
       text: "Apakah Anda yakin menghapus Fuel ini?",

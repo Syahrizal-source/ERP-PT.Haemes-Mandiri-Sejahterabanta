@@ -44,71 +44,102 @@ type PeriodeRow = {
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
+
     const periodeParam = searchParams.get("periode");
 
-    let query;
+    const semuaPeriodeParam = searchParams.get("semua_periode");
 
-    /* =========================
-       DEFAULT: PERIODE AKTIF
-    ========================= */
-    if (!periodeParam) {
-      const periode: PeriodeRow = await getPeriodeAktif();
+    const semuaPeriode = semuaPeriodeParam === "true";
 
-      query = db
-        .from("jurnal")
-        .select(
-          `
-          id_jurnal,
-          tanggal,
-          no_bukti,
-          sumber,
-          keterangan,
-          id_periode,
-          created_at,
-          is_posted,
-          jurnal_detail (
-            id_detail,
-            id_coa,
-            debit,
-            kredit
-          )
-        `,
+    let query = db
+      .from("jurnal")
+      .select(
+        `
+        id_jurnal,
+        tanggal,
+        no_bukti,
+        sumber,
+        keterangan,
+        id_periode,
+        created_at,
+        is_posted,
+        jurnal_detail (
+          id_detail,
+          id_coa,
+          debit,
+          kredit
         )
-        .eq("id_periode", periode.id_periode) // 🔥 FILTER OTOMATIS
-        .order("tanggal", { ascending: false });
-    } else {
-      /* =========================
-         FILTER MANUAL (OPSIONAL)
-      ========================= */
+        `,
+      )
+      .order("tanggal", {
+        ascending: false,
+      });
+
+    /*
+     * ==================================================
+     * SEMUA PERIODE
+     * Digunakan oleh Form Jurnal Koreksi.
+     *
+     * Termasuk:
+     * - Periode OPEN
+     * - Periode CLOSED
+     *
+     * Tetapi hanya jurnal yang benar-benar POSTED
+     * yang akan ditampilkan oleh form.
+     * ==================================================
+     */
+    if (semuaPeriode) {
+      const { data, error } = await query;
+
+      if (error) {
+        throw error;
+      }
+
+      const result: JurnalRow[] = data ?? [];
+
+      return NextResponse.json(result);
+    }
+
+    /*
+     * ==================================================
+     * FILTER PERIODE MANUAL
+     * ==================================================
+     */
+    if (periodeParam) {
       const periodeNumber = Number(periodeParam);
 
-      query = db
-        .from("jurnal")
-        .select(
-          `
-          id_jurnal,
-          tanggal,
-          no_bukti,
-          sumber,
-          keterangan,
-          id_periode,
-          created_at,
-          is_posted,
-          jurnal_detail (
-            id_detail,
-            id_coa,
-            debit,
-            kredit
-          )
-        `,
-        )
-        .eq("id_periode", periodeNumber)
-        .order("tanggal", { ascending: false });
+      if (!Number.isInteger(periodeNumber) || periodeNumber <= 0) {
+        return NextResponse.json(
+          {
+            message: "Parameter periode tidak valid",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      query = query.eq("id_periode", periodeNumber);
+    } else {
+      /*
+       * ==================================================
+       * DEFAULT
+       * Tetap menggunakan periode aktif.
+       *
+       * Jangan diubah karena endpoint /api/jurnal
+       * digunakan oleh modul lain.
+       * ==================================================
+       */
+      const periode: PeriodeRow = await getPeriodeAktif();
+
+      query = query.eq("id_periode", periode.id_periode);
     }
 
     const { data, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
     const result: JurnalRow[] = data ?? [];
 
@@ -117,8 +148,12 @@ export async function GET(request: NextRequest) {
     console.error("GET JURNAL ERROR:", error);
 
     return NextResponse.json(
-      { message: "Gagal ambil jurnal" },
-      { status: 500 },
+      {
+        message: "Gagal ambil jurnal",
+      },
+      {
+        status: 500,
+      },
     );
   }
 }

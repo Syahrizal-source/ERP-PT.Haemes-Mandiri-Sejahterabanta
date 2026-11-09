@@ -116,9 +116,15 @@ export async function GET(req: Request): Promise<NextResponse> {
     { tipe: "EKUITAS", saldo: grouped["EKUITAS"] ?? 0 },
   ];
 
-  const buffer = await buildNeracaExcelWithQR(result);
+  const exportRows = result.map((row) => ({
+    kode: row.tipe,
+    nama: row.tipe,
+    tipe: row.tipe,
+    saldo: row.saldo,
+  }));
+  const buffer = await buildNeracaExcelWithQR(null, exportRows);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

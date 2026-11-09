@@ -1,16 +1,37 @@
 import { NextResponse } from "next/server";
-
 import ExcelJS from "exceljs";
 
 import { db } from "@/lib/supabase/server";
-
 import { getCorporateHierarchy } from "@/lib/accounting/corporateHierarchy";
 
-/* =========================================
-   EXPORT CHART OF ACCOUNT
-========================================= */
+/* =========================
+   TYPES
+========================= */
 
-export async function GET() {
+interface CoaDatabaseRow {
+  id_coa: number;
+  kode: string;
+  nama: string;
+  tipe: string;
+  parent_id: number | null;
+  aktif: boolean;
+  is_cash: boolean;
+  saldo_awal_2026: number | string;
+}
+
+interface CoaExportRow extends CoaDatabaseRow {
+  parent_kode: string;
+  parent_nama: string;
+  virtual_code: string;
+  level: number;
+  is_header: boolean;
+}
+
+/* =========================
+   EXPORT CHART OF ACCOUNT
+========================= */
+
+export async function GET(): Promise<NextResponse> {
   try {
     const { data, error } = await db
       .from("coa")
@@ -20,8 +41,10 @@ export async function GET() {
         kode,
         nama,
         tipe,
+        parent_id,
         aktif,
-        is_cash
+        is_cash,
+        saldo_awal_2026
       `,
       )
       .order("id_coa", {
@@ -29,9 +52,12 @@ export async function GET() {
       });
 
     if (error) {
+      console.error("GAGAL MENGAMBIL DATA COA:", error);
+
       return NextResponse.json(
         {
-          message: error.message,
+          message: "Gagal mengambil data COA",
+          detail: error.message,
         },
         {
           status: 500,
@@ -39,48 +65,83 @@ export async function GET() {
       );
     }
 
-    /* =========================================
-       CORPORATE HIERARCHY
-    ========================================= */
+    /*
+     * MAP DATA COA
+     * Saldo awal dibaca langsung dari public.coa.
+     */
 
-    const rows = (data ?? [])
+    const coaData: CoaDatabaseRow[] = (data ?? []).map((item) => {
+      const saldoAwal = Number(item.saldo_awal_2026);
+
+      if (!Number.isFinite(saldoAwal)) {
+        throw new Error(`Saldo awal 2026 tidak valid untuk COA ${item.kode}.`);
+      }
+
+      return {
+        id_coa: item.id_coa,
+        kode: item.kode,
+        nama: item.nama,
+        tipe: item.tipe,
+        parent_id: item.parent_id,
+        aktif: item.aktif,
+        is_cash: item.is_cash,
+        saldo_awal_2026: saldoAwal,
+      };
+    });
+
+    /*
+     * MAP COA BERDASARKAN ID ASLI
+     * Parent dicari menggunakan parent_id,
+     * bukan berdasarkan tebakan kode akun.
+     */
+
+    const coaById = new Map<number, CoaDatabaseRow>(
+      coaData.map((item) => [item.id_coa, item]),
+    );
+
+    /*
+     * CORPORATE HIERARCHY + PARENT ASLI
+     */
+
+    const rows: CoaExportRow[] = coaData
       .map((item) => {
-        const hierarchy = getCorporateHierarchy(String(item.kode));
+        const hierarchy = getCorporateHierarchy(item.kode, item.id_coa);
+
+        const parent =
+          item.parent_id === null ? undefined : coaById.get(item.parent_id);
 
         return {
           ...item,
-
+          parent_kode: parent?.kode ?? "",
+          parent_nama: parent?.nama ?? "",
           virtual_code: hierarchy.virtual_code,
-
           level: hierarchy.level,
-
           is_header: hierarchy.header,
-
-          division: hierarchy.division ?? "",
-
-          section: hierarchy.section ?? "",
         };
       })
+      .sort((a, b) =>
+        a.virtual_code.localeCompare(b.virtual_code, "id", {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
 
-      .sort((a, b) => a.virtual_code.localeCompare(b.virtual_code));
-
-    /* =========================================
-       WORKBOOK
-    ========================================= */
+    /*
+     * WORKBOOK
+     */
 
     const workbook = new ExcelJS.Workbook();
 
     workbook.creator = "PT. Haemes Mandiri Sejahterabanta";
-
     workbook.created = new Date();
 
     const sheet = workbook.addWorksheet("Chart Of Account");
 
-    /* =========================================
-       TITLE
-    ========================================= */
+    /*
+     * TITLE
+     */
 
-    sheet.mergeCells("A1:E1");
+    sheet.mergeCells("A1:H1");
 
     sheet.getCell("A1").value = "CHART OF ACCOUNT";
 
@@ -88,7 +149,7 @@ export async function GET() {
       bold: true,
       size: 18,
       color: {
-        argb: "1F1F1F",
+        argb: "FF1F1F1F",
       },
     };
 
@@ -99,11 +160,11 @@ export async function GET() {
 
     sheet.getRow(1).height = 28;
 
-    /* =========================================
-       COMPANY
-    ========================================= */
+    /*
+     * COMPANY
+     */
 
-    sheet.mergeCells("A2:E2");
+    sheet.mergeCells("A2:H2");
 
     sheet.getCell("A2").value = "PT. HAEMES MANDIRI SEJAHTERABANTA";
 
@@ -116,11 +177,20 @@ export async function GET() {
       horizontal: "center",
     };
 
-    /* =========================================
-       HEADER
-    ========================================= */
+    /*
+     * HEADER
+     */
 
-    const headers = ["Kode", "Nama Akun", "Tipe", "Status", "Cash Account"];
+    const headers = [
+      "Kode",
+      "Nama Akun",
+      "Tipe",
+      "Parent Kode",
+      "Parent Nama",
+      "Saldo Awal 2026",
+      "Status",
+      "Cash Account",
+    ];
 
     sheet.getRow(4).values = headers;
 
@@ -135,101 +205,52 @@ export async function GET() {
       type: "pattern",
       pattern: "solid",
       fgColor: {
-        argb: "1F4E78",
+        argb: "FF1F4E78",
       },
     };
 
     sheet.getRow(4).alignment = {
       horizontal: "center",
       vertical: "middle",
+      wrapText: true,
     };
 
-    /* =========================================
-       COLUMN WIDTH
-    ========================================= */
+    /*
+     * COLUMN WIDTH
+     */
 
     sheet.columns = [
       { width: 20 },
       { width: 48 },
       { width: 20 },
+      { width: 20 },
+      { width: 40 },
+      {
+        width: 24,
+        style: {
+          numFmt: '"Rp" #,##0.00;[Red]("Rp" #,##0.00)',
+        },
+      },
       { width: 16 },
       { width: 18 },
     ];
 
-    /* =========================================
-       DATA
-    ========================================= */
+    /*
+     * DATA
+     */
 
     let rowNumber = 5;
 
-    let currentDivision = "";
-    let currentSection = "";
-
     for (const item of rows) {
-      /* =========================================
-   DIVISION HEADER
-========================================= */
-
-      if (item.division && item.division !== currentDivision) {
-        sheet.mergeCells(`A${rowNumber}:E${rowNumber}`);
-
-        sheet.getCell(`A${rowNumber}`).value = item.division;
-
-        sheet.getCell(`A${rowNumber}`).alignment = {
-          horizontal: "left",
-          vertical: "middle",
-        };
-
-        sheet.getCell(`A${rowNumber}`).font = {
-          bold: true,
-          size: 14,
-          color: {
-            argb: "1F1F1F",
-          },
-        };
-
-        currentDivision = item.division;
-
-        currentSection = "";
-
-        rowNumber++;
-      }
-
-      /* =========================================
-   SECTION HEADER
-========================================= */
-
-      if (item.section && item.section !== currentSection) {
-        sheet.mergeCells(`A${rowNumber}:E${rowNumber}`);
-
-        sheet.getCell(`A${rowNumber}`).value = item.section;
-
-        sheet.getCell(`A${rowNumber}`).alignment = {
-          horizontal: "left",
-          vertical: "middle",
-        };
-
-        sheet.getCell(`A${rowNumber}`).font = {
-          bold: true,
-          size: 12,
-          color: {
-            argb: "1F1F1F",
-          },
-        };
-
-        currentSection = item.section;
-
-        rowNumber++;
-      }
-      /* =========================================
-         KODE
-      ========================================= */
+      /*
+       * KODE
+       */
 
       sheet.getCell(`A${rowNumber}`).value = item.virtual_code;
 
-      /* =========================================
-         NAMA AKUN
-      ========================================= */
+      /*
+       * NAMA AKUN
+       */
 
       sheet.getCell(`B${rowNumber}`).value = item.nama;
 
@@ -238,34 +259,47 @@ export async function GET() {
         vertical: "middle",
       };
 
-      /* =========================================
-         TIPE
-      ========================================= */
+      /*
+       * TIPE
+       */
 
       sheet.getCell(`C${rowNumber}`).value = item.tipe;
 
-      /* =========================================
-         STATUS
-      ========================================= */
+      /*
+       * PARENT COA ASLI
+       */
 
-      sheet.getCell(`D${rowNumber}`).value = item.aktif ? "AKTIF" : "NONAKTIF";
+      sheet.getCell(`D${rowNumber}`).value = item.parent_kode;
+      sheet.getCell(`E${rowNumber}`).value = item.parent_nama;
 
-      /* =========================================
-         CASH ACCOUNT
-      ========================================= */
+      /*
+       * SALDO AWAL 2026
+       */
 
-      sheet.getCell(`E${rowNumber}`).value = item.is_cash ? "YA" : "TIDAK";
+      sheet.getCell(`F${rowNumber}`).value = Number(item.saldo_awal_2026);
 
-      /* =========================================
-         CORPORATE HEADER STYLE
-      ========================================= */
+      /*
+       * STATUS
+       */
+
+      sheet.getCell(`G${rowNumber}`).value = item.aktif ? "AKTIF" : "NONAKTIF";
+
+      /*
+       * CASH ACCOUNT
+       */
+
+      sheet.getCell(`H${rowNumber}`).value = item.is_cash ? "YA" : "TIDAK";
+
+      /*
+       * CORPORATE HEADER STYLE
+       */
 
       if (item.is_header) {
-        for (let col = 1; col <= 5; col++) {
+        for (let col = 1; col <= 8; col += 1) {
           sheet.getCell(rowNumber, col).font = {
             bold: true,
             color: {
-              argb: "1F1F1F",
+              argb: "FF1F1F1F",
             },
           };
 
@@ -273,39 +307,31 @@ export async function GET() {
             type: "pattern",
             pattern: "solid",
             fgColor: {
-              argb: "E2EFDA",
+              argb: "FFE2EFDA",
             },
           };
         }
       }
 
-      /* =========================================
-         BORDER
-      ========================================= */
+      /*
+       * BORDER
+       */
 
-      for (let col = 1; col <= 5; col++) {
+      for (let col = 1; col <= 8; col += 1) {
         sheet.getCell(rowNumber, col).border = {
-          top: {
-            style: "thin",
-          },
-          left: {
-            style: "thin",
-          },
-          bottom: {
-            style: "thin",
-          },
-          right: {
-            style: "thin",
-          },
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
         };
       }
 
-      rowNumber++;
+      rowNumber += 1;
     }
 
-    /* =========================================
-       FREEZE HEADER
-    ========================================= */
+    /*
+     * FREEZE HEADER
+     */
 
     sheet.views = [
       {
@@ -314,35 +340,36 @@ export async function GET() {
       },
     ];
 
-    /* =========================================
-       AUTOFILTER
-    ========================================= */
+    /*
+     * AUTOFILTER
+     */
 
     sheet.autoFilter = {
       from: "A4",
-      to: "E4",
+      to: "H4",
     };
 
-    /* =========================================
-       EXPORT BUFFER
-    ========================================= */
+    /*
+     * EXPORT BUFFER
+     */
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    return new NextResponse(buffer, {
+    return new NextResponse(Buffer.from(buffer), {
       status: 200,
-
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-
         "Content-Disposition": 'attachment; filename="Chart-Of-Account.xlsx"',
+        "Cache-Control": "no-store",
       },
     });
   } catch (error: unknown) {
+    console.error("EXPORT COA ERROR:", error);
+
     return NextResponse.json(
       {
-        message: error instanceof Error ? error.message : "Export gagal",
+        message: error instanceof Error ? error.message : "Export COA gagal",
       },
       {
         status: 500,

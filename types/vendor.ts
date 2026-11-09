@@ -1,8 +1,20 @@
 type VendorItem = {
-  id: string;
-  kode: string;
-  nama: string;
-  alamat: string | null;
+  id: number;
+  kode_vendor: string | null;
+  nama_vendor: string;
+  kategori_vendor: string | null;
+  npwp: string | null;
+  nama_npwp: string | null;
+  alamat_npwp: string | null;
   telepon: string | null;
   email: string | null;
+  alamat: string | null;
+  status: boolean;
+  created_at: string;
+  updated_at: string | null;
+  pkp: boolean;
+  jenis_pajak: string | null;
+  id_coa: number | null;
+  kode_coa: string | null;
+  nama_coa: string | null;
 };

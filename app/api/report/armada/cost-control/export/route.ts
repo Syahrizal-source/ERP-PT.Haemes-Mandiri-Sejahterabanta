@@ -6,12 +6,12 @@ import QRCode from "qrcode";
 interface CostControlRow {
   tanggal: string;
   jenis_biaya: string;
-  nominal: number;
+  nominal: number | string;
   armada: {
     kode_transaksi: string;
     no_polisi: string;
     supir: string;
-  } | null;
+  }[] | null;
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -52,14 +52,15 @@ export async function GET(): Promise<NextResponse> {
 
   let total = 0;
 
-  data.forEach((row: CostControlRow) => {
+  data.forEach((row) => {
     const nominal = Number(row.nominal);
+    const armada = row.armada?.[0];
 
     sheet.addRow([
       row.tanggal,
-      row.armada?.kode_transaksi ?? "",
-      row.armada?.no_polisi ?? "",
-      row.armada?.supir ?? "",
+      armada?.kode_transaksi ?? "",
+      armada?.no_polisi ?? "",
+      armada?.supir ?? "",
       row.jenis_biaya,
       nominal,
     ]);
@@ -71,10 +72,10 @@ export async function GET(): Promise<NextResponse> {
   sheet.addRow(["", "", "", "", "TOTAL", total]);
 
   const qrText = `Total Cost Control Armada: ${total}`;
-  const qrImage = await QRCode.toBuffer(qrText);
+  const qrImage = await QRCode.toDataURL(qrText);
 
   const imageId = workbook.addImage({
-    buffer: qrImage,
+    base64: qrImage.replace(/^data:image\/png;base64,/, ""),
     extension: "png",
   });
 
@@ -82,7 +83,7 @@ export async function GET(): Promise<NextResponse> {
 
   const buffer = await workbook.xlsx.writeBuffer();
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

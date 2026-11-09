@@ -29,4 +29,34 @@ export interface ArmadaRow {
   jumlah_do: number;
   bersih: number;
   created_at: string;
+  status?: "DRAFT" | "POSTED" | "CANCELLED";
+  total_pembayaran?: number;
+  sisa_tagihan?: number;
+  pembayaran_tagihan?: ArmadaPembayaranTagihan[];
+}
+
+export interface ArmadaPembayaranTagihan {
+  id: string;
+
+  armada_id: number;
+
+  tanggal: string;
+
+  no_bukti: string;
+
+  nominal: number;
+
+  metode_pembayaran: string;
+
+  id_coa_kas: number | null;
+
+  keterangan: string | null;
+
+  status: "DRAFT" | "POSTED" | "CANCELLED";
+
+  id_jurnal: number | null;
+
+  created_at: string;
+
+  updated_at: string;
 }

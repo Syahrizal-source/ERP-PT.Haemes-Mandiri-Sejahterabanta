@@ -34,14 +34,18 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const result: CostControlRow[] = (data ?? []).map((row) => ({
-    tanggal: row.tanggal,
-    jenis_biaya: row.jenis_biaya,
-    nominal: Number(row.nominal),
-    kode_transaksi: row.armada?.kode_transaksi ?? "",
-    no_polisi: row.armada?.no_polisi ?? "",
-    supir: row.armada?.supir ?? "",
-  }));
+  const result: CostControlRow[] = (data ?? []).map((row) => {
+    const armada = row.armada?.[0];
+
+    return {
+      tanggal: row.tanggal,
+      jenis_biaya: row.jenis_biaya,
+      nominal: Number(row.nominal),
+      kode_transaksi: armada?.kode_transaksi ?? "",
+      no_polisi: armada?.no_polisi ?? "",
+      supir: armada?.supir ?? "",
+    };
+  });
 
   return NextResponse.json(result);
 }

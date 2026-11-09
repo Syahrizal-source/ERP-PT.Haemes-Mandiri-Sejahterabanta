@@ -24,7 +24,6 @@ export default function DepreciationPage() {
   const [data, setData] = useState<Depreciation[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -46,10 +45,11 @@ export default function DepreciationPage() {
   }
 
   useEffect(() => {
-    fetchData();// eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
   }, []);
 
-  async function handleDelete(id: number): Promise<void> {
+  async function handleDelete(id: string): Promise<void> {
     const confirm = await Swal.fire({
       title: "Konfirmasi Hapus",
       text: "Apakah Anda yakin menghapus Depreciation ini?",

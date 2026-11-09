@@ -1,12 +1,21 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+
 import { db } from "@/lib/supabase/server";
-import {
-  vendorPajakUpdateSchema,
-  VendorPajakUpdateInput,
-} from "@/lib/validators/vendorPajak";
+
+import { vendorPajakUpdateSchema } from "@/lib/validators/vendorPajak";
+
+import type { VendorPajakUpdateInput } from "@/lib/validators/vendorPajak";
+
+/* =========================
+   TYPES
+========================= */
 
 type Params = {
   id: string;
+};
+
+type RouteContext = {
+  params: Promise<Params>;
 };
 
 type VendorPajakRow = {
@@ -18,73 +27,171 @@ type VendorPajakRow = {
   pkp: boolean;
 };
 
-export async function PUT(
-  req: Request,
-  { params }: { params: Params },
-): Promise<NextResponse> {
-  const pajakId = Number(params.id);
+/* =========================
+   HELPERS
+========================= */
 
-  if (!Number.isInteger(pajakId)) {
-    return NextResponse.json(
-      { error: "ID pajak vendor tidak valid" },
-      { status: 400 },
-    );
+function parsePajakId(id: string): number | null {
+  const pajakId = Number(id);
+
+  if (!Number.isSafeInteger(pajakId) || pajakId <= 0) {
+    return null;
   }
 
-  const body: unknown = await req.json();
-
-  const parsed = vendorPajakUpdateSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.message }, { status: 400 });
-  }
-
-  const payload: VendorPajakUpdateInput = parsed.data;
-
-  const { data, error } = await db
-    .from("vendor_pajak")
-    .update(payload)
-    .eq("id", pajakId)
-    .select("id,vendor_id,npwp,nama_npwp,alamat_npwp,pkp")
-    .single();
-
-  if (error !== null || data === null) {
-    return NextResponse.json(
-      { error: error?.message ?? "Gagal update pajak vendor" },
-      { status: 500 },
-    );
-  }
-
-  const result: VendorPajakRow = {
-    id: data.id as number,
-    vendor_id: data.vendor_id as number,
-    npwp: data.npwp ?? null,
-    nama_npwp: data.nama_npwp ?? null,
-    alamat_npwp: data.alamat_npwp ?? null,
-    pkp: data.pkp as boolean,
-  };
-
-  return NextResponse.json(result);
+  return pajakId;
 }
 
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Params },
-): Promise<NextResponse> {
-  const pajakId = Number(params.id);
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Terjadi kesalahan sistem";
+}
 
-  if (!Number.isInteger(pajakId)) {
+/* =========================
+   PUT - UPDATE PAJAK VENDOR
+========================= */
+
+export async function PUT(
+  req: NextRequest,
+  { params }: RouteContext,
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+    const pajakId = parsePajakId(id);
+
+    if (pajakId === null) {
+      return NextResponse.json(
+        {
+          error: "ID pajak vendor tidak valid",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const body: unknown = await req.json();
+
+    const parsed = vendorPajakUpdateSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: parsed.error.flatten(),
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const payload: VendorPajakUpdateInput = parsed.data;
+
+    const { data, error } = await db
+      .from("vendor_pajak")
+      .update(payload)
+      .eq("id", pajakId)
+      .select("id,vendor_id,npwp,nama_npwp,alamat_npwp,pkp")
+      .maybeSingle();
+
+    if (error) {
+      console.error("UPDATE VENDOR PAJAK ERROR:", error);
+
+      return NextResponse.json(
+        {
+          error: "Gagal memperbarui pajak vendor",
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    if (!data) {
+      return NextResponse.json(
+        {
+          error: "Data pajak vendor tidak ditemukan",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    const result: VendorPajakRow = {
+      id: data.id as number,
+      vendor_id: data.vendor_id as number,
+      npwp: data.npwp ?? null,
+      nama_npwp: data.nama_npwp ?? null,
+      alamat_npwp: data.alamat_npwp ?? null,
+      pkp: data.pkp as boolean,
+    };
+
+    return NextResponse.json(result);
+  } catch (error: unknown) {
+    console.error("UPDATE VENDOR PAJAK ERROR:", error);
+
     return NextResponse.json(
-      { error: "ID pajak vendor tidak valid" },
-      { status: 400 },
+      {
+        error: getErrorMessage(error),
+      },
+      {
+        status: 500,
+      },
     );
   }
+}
 
-  const { error } = await db.from("vendor_pajak").delete().eq("id", pajakId);
+/* =========================
+   DELETE - VENDOR PAJAK
+========================= */
 
-  if (error !== null) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+export async function DELETE(
+  _req: NextRequest,
+  { params }: RouteContext,
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+    const pajakId = parsePajakId(id);
+
+    if (pajakId === null) {
+      return NextResponse.json(
+        {
+          error: "ID pajak vendor tidak valid",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const { error } = await db.from("vendor_pajak").delete().eq("id", pajakId);
+
+    if (error) {
+      console.error("DELETE VENDOR PAJAK ERROR:", error);
+
+      return NextResponse.json(
+        {
+          error: "Gagal menghapus pajak vendor",
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Data pajak vendor berhasil dihapus",
+    });
+  } catch (error: unknown) {
+    console.error("DELETE VENDOR PAJAK ERROR:", error);
+
+    return NextResponse.json(
+      {
+        error: getErrorMessage(error),
+      },
+      {
+        status: 500,
+      },
+    );
   }
-
-  return NextResponse.json({ success: true });
 }

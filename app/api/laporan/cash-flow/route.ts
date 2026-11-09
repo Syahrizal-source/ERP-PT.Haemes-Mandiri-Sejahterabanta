@@ -9,9 +9,10 @@ type Coa = {
 };
 
 type JurnalDetail = {
-  debit: number;
-  kredit: number;
-  coa: Coa | null;
+  debit: number | string;
+  kredit: number | string;
+  jurnal: { id_periode: number; is_posted: boolean }[] | null;
+  coa: Coa[] | null;
 };
 
 type GroupResult = {
@@ -62,13 +63,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `,
     )
     .eq("jurnal.id_periode", id_periode)
-    .eq("jurnal.is_posted", true);
+    .eq("jurnal.is_posted", true)
+    .returns<JurnalDetail[]>();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const rows = data as JurnalDetail[];
+  const rows: JurnalDetail[] = data ?? [];
 
   const kasCodes = ["11001", "11002", "11010", "11020", "11040"];
 
@@ -77,9 +79,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let pendanaan = 0;
 
   for (const r of rows) {
-    if (!r.coa) continue;
+    const coa = r.coa?.[0];
+    if (!coa) continue;
 
-    const kode = r.coa.kode;
+    const kode = coa.kode;
     const debit = Number(r.debit);
     const kredit = Number(r.kredit);
 
@@ -88,22 +91,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     /* =========================
        HANYA YANG BERKAITAN DENGAN KAS
     ========================= */
-    if (!kasCodes.includes(kode) && r.coa.tipe === "ASET") continue;
+    if (!kasCodes.includes(kode) && coa.tipe === "ASET") continue;
 
     /* =========================
        OPERASIONAL
     ========================= */
-    if (r.coa.tipe === "PENDAPATAN" || r.coa.tipe === "BEBAN") {
+    if (coa.tipe === "PENDAPATAN" || coa.tipe === "BEBAN") {
       operasional += net;
-    } else if (r.coa.tipe === "ASET" && !kasCodes.includes(kode)) {
-
-    /* =========================
+    } else if (coa.tipe === "ASET" && !kasCodes.includes(kode)) {
+      /* =========================
        INVESTASI
     ========================= */
       investasi += net;
-    } else if (r.coa.tipe === "LIABILITAS" || r.coa.tipe === "EKUITAS") {
-
-    /* =========================
+    } else if (coa.tipe === "LIABILITAS" || coa.tipe === "EKUITAS") {
+      /* =========================
        PENDANAAN
     ========================= */
       pendanaan += net;

@@ -34,7 +34,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     // 3️⃣ POSTING KE JURNAL UTAMA
-    const { data: jurnal } = await db
+    const { data: jurnal, error: jurnalError } = await db
       .from("jurnal")
       .insert({
         tanggal: parsed.tanggal,
@@ -45,6 +45,12 @@ export async function POST(req: Request): Promise<NextResponse> {
       })
       .select("id_jurnal")
       .single();
+
+    if (jurnalError || !jurnal) {
+      throw new Error(
+        jurnalError?.message ?? "Gagal membuat jurnal penyesuaian.",
+      );
+    }
 
     for (const d of parsed.details) {
       await db.from("jurnal_detail").insert({

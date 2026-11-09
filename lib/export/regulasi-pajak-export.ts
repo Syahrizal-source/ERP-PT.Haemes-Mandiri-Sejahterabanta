@@ -34,10 +34,10 @@ export async function buildRegulasiPajakExcelWithQR(
   };
 
   const hash = generateReportHash(metadata);
-  const qrImage = await QRCode.toBuffer(hash);
+  const qrImage = await QRCode.toDataURL(hash);
 
   const imageId = workbook.addImage({
-    buffer: qrImage,
+    base64: qrImage.replace(/^data:image\/png;base64,/, ""),
     extension: "png",
   });
 
