@@ -6,12 +6,10 @@
    ROOT THEME (ERP STYLE)
 ========================= */
 :root {
-  --background: #f8fafc; /* soft gray */
-  --foreground: #0f172a; /* slate-900 */
-
-  --primary: #2563eb; /* biru ERP */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --primary: #2563eb;
   --primary-foreground: #ffffff;
-
   --border: #e2e8f0;
   --muted: #64748b;
 }
@@ -21,7 +19,6 @@
   :root {
     --background: #020617;
     --foreground: #e2e8f0;
-
     --border: #1e293b;
     --muted: #94a3b8;
   }
@@ -61,14 +58,14 @@ p {
    CARD / PANEL
 ========================= */
 .card {
-  @apply bg-white border rounded-xl shadow-sm p-4;
+  @apply rounded-xl border bg-white p-4 shadow-sm;
 }
 
 /* =========================
    TABLE ERP STYLE
 ========================= */
 table {
-  @apply w-full text-sm border border-slate-200 rounded-lg overflow-hidden;
+  @apply w-full overflow-hidden rounded-lg border border-slate-200 text-sm;
 }
 
 thead {
@@ -80,7 +77,7 @@ th {
 }
 
 td {
-  @apply px-3 py-2 border-t;
+  @apply border-t px-3 py-2;
 }
 
 /* =========================
@@ -111,6 +108,169 @@ body.swal2-shown > [aria-hidden="true"] {
   filter: blur(3px);
 }
 
+/* =========================
+   AUTHENTICATION PAGES
+   Scoped agar tidak mengubah
+   tampilan dashboard/modul ERP.
+========================= */
+.auth-shell {
+  @apply relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-slate-50 px-4 py-8 sm:px-6;
+  background-image:
+    linear-gradient(rgba(226, 232, 240, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(226, 232, 240, 0.32) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+
+.auth-background-glow {
+  @apply pointer-events-none absolute -z-10 rounded-full blur-3xl;
+}
+
+.auth-background-glow-one {
+  @apply left-[-8rem] top-[-8rem] h-80 w-80 bg-blue-200/50;
+}
+
+.auth-background-glow-two {
+  @apply bottom-[-10rem] right-[-7rem] h-96 w-96 bg-indigo-200/40;
+}
+
+.auth-layout {
+  @apply relative grid w-full max-w-5xl items-center gap-8 lg:grid-cols-[1fr_0.9fr] lg:gap-14;
+}
+
+.auth-layout-register {
+  @apply max-w-6xl lg:grid-cols-[0.85fr_1fr];
+}
+
+.auth-intro {
+  @apply hidden px-4 py-8 lg:block;
+}
+
+.auth-intro-register {
+  @apply lg:order-2;
+}
+
+.auth-brand-mark {
+  @apply mb-8 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20;
+}
+
+.auth-eyebrow,
+.auth-form-eyebrow {
+  @apply text-xs font-bold tracking-[0.18em] text-blue-700;
+}
+
+.auth-intro-title {
+  @apply mt-4 max-w-xl text-4xl font-bold leading-tight tracking-tight text-slate-900 xl:text-5xl;
+}
+
+.auth-intro-description {
+  @apply mt-5 max-w-lg text-base leading-7 text-slate-600;
+}
+
+.auth-intro-footer {
+  @apply mt-10 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm;
+}
+
+.auth-status-dot {
+  @apply h-2 w-2 rounded-full bg-emerald-500 ring-4 ring-emerald-100;
+}
+
+.auth-card {
+  @apply w-full rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xl shadow-slate-900/5 sm:p-9;
+}
+
+.auth-card-register {
+  @apply lg:order-1;
+}
+
+.auth-mobile-brand {
+  @apply mb-8 flex items-center gap-2.5 text-sm font-extrabold tracking-wide text-slate-900 lg:hidden;
+}
+
+.auth-mobile-brand-icon {
+  @apply flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white;
+}
+
+.auth-form-title {
+  @apply mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl;
+}
+
+.auth-form-description {
+  @apply mt-2 text-sm leading-6 text-slate-500;
+}
+
+.auth-label {
+  @apply mb-2 block text-sm font-semibold text-slate-700;
+}
+
+.auth-input-wrap {
+  @apply relative;
+}
+
+.auth-input-icon {
+  @apply pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400;
+}
+
+.auth-input {
+  @apply block min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.auth-input-wrap .auth-input {
+  @apply pl-11;
+}
+
+.auth-input-no-icon {
+  @apply pl-4;
+}
+
+.auth-select {
+  @apply cursor-pointer bg-white;
+}
+
+.auth-submit {
+  @apply flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 hover:shadow-blue-700/20 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.auth-secondary {
+  @apply min-h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.auth-message-error {
+  @apply rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium leading-6 text-red-700;
+}
+
+.auth-message-success {
+  @apply rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium leading-6 text-emerald-700;
+}
+
+.auth-card-divider {
+  @apply relative my-7 border-t border-slate-100 text-center;
+}
+
+.auth-card-divider span {
+  @apply relative -top-3 inline-block bg-white px-3 text-[10px] font-bold tracking-[0.18em] text-slate-400;
+}
+
+.auth-footer-text {
+  @apply text-center text-xs text-slate-400;
+}
+
+@media (max-width: 640px) {
+  .auth-shell {
+    @apply items-start py-6;
+  }
+
+  .auth-card {
+    @apply rounded-2xl p-5;
+  }
+
+  .auth-form-title {
+    @apply text-2xl;
+  }
+}
+
+/* =========================
+   PRINT
+========================= */
 @media print {
   @page {
     size: A4 portrait;
@@ -141,26 +301,16 @@ body.swal2-shown > [aria-hidden="true"] {
 
   /* container A4 */
   #print-area {
-    width: 186mm; /* A4 - margin */
+    width: 186mm;
     min-height: auto;
-
     margin: 0 auto;
     padding: 10mm;
-
     box-sizing: border-box;
-
     background: white;
-
     font-size: 12px;
-
-    /* PENTING: jangan pakai absolute */
     position: relative;
-
-    /* anti kepotong */
     page-break-inside: avoid;
     break-inside: avoid;
-
-    /* rapihin */
     border: 1px solid #ccc;
     border-radius: 6px;
   }

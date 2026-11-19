@@ -83,7 +83,8 @@ export default function JurnalDetailPage() {
   }
 
   useEffect(() => {
-    fetchDetail();// eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchDetail(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {

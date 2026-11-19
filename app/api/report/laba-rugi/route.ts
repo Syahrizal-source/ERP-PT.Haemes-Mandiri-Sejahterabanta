@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import QRCode from "qrcode";
-
 import { db } from "@/lib/supabase/server";
 import { generateQRCodeValue } from "@/lib/helpers/qrcode";
 
@@ -56,9 +55,32 @@ interface JurnalReportRow {
   id_periode: number;
 }
 
+interface RevenueLedgerViewRow {
+  id_jurnal: number | string;
+  id_detail: number | string;
+  id_coa: number | string;
+  id_periode?: number | string | null;
+  tanggal: string;
+  no_bukti: string | null;
+  keterangan: string | null;
+  sumber: string | null;
+  status?: string | null;
+  is_posted?: boolean | null;
+  kode_coa: string | null;
+  nama_coa: string | null;
+  tipe_coa?: string | null;
+  debit: number | string | null;
+  kredit: number | string | null;
+  saldo_berjalan?: number | string | null;
+}
+
 interface PeriodeReportRow {
   id_periode: number;
+  nama_periode: string;
   status: string;
+  tanggal_mulai: string;
+  tanggal_selesai: string;
+  is_closed: boolean;
 }
 
 interface LabaRugiViewRow {
@@ -187,16 +209,11 @@ interface AsetReportSummary {
  * Cut-off data baru yang sudah divalidasi:
  * 11-08-2026
  */
-const DEFAULT_START_DATE = "2026-08-11";
-
 /**
- * Periode validasi terakhir yang sebelumnya digunakan.
- * Bisa diganti melalui query parameter:
- *
- * ?tanggal_mulai=YYYY-MM-DD
- * &tanggal_selesai=YYYY-MM-DD
+ * Rentang default mengikuti periode OPEN dari tabel periode.
+ * Parameter tanggal_mulai/tanggal_selesai dapat mengubah rentang
+ * jika memang dikirim secara eksplisit.
  */
-const DEFAULT_END_DATE = "2026-09-19";
 
 const COMPANY_NAME = "PT. Haemes Mandiri Sejahterabanta";
 
@@ -245,6 +262,8 @@ function formatDateIndonesia(value: string): string {
 }
 
 function formatPrintDate(): string {
+  // Tanggal cetak mengikuti tanggal aktual saat laporan dibuat,
+  // bukan tanggal periode akuntansi.
   return new Date().toLocaleDateString("id-ID", {
     day: "2-digit",
     month: "long",
@@ -256,28 +275,27 @@ function formatPrintDate(): string {
    DATE RANGE
 ========================================================= */
 
-function getReportDateRange(searchParams: URLSearchParams): {
+function getReportDateRange(
+  searchParams: URLSearchParams,
+  periodeOpen: PeriodeReportRow,
+): {
   tanggalMulai: string;
   tanggalSelesai: string;
 } {
   const tanggalMulaiParam = searchParams.get("tanggal_mulai")?.trim();
-
   const tanggalSelesaiParam = searchParams.get("tanggal_selesai")?.trim();
 
   const tanggalMulai =
     tanggalMulaiParam && /^\d{4}-\d{2}-\d{2}$/.test(tanggalMulaiParam)
       ? tanggalMulaiParam
-      : DEFAULT_START_DATE;
+      : periodeOpen.tanggal_mulai;
 
   const tanggalSelesai =
     tanggalSelesaiParam && /^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesaiParam)
       ? tanggalSelesaiParam
-      : DEFAULT_END_DATE;
+      : periodeOpen.tanggal_selesai;
 
-  return {
-    tanggalMulai,
-    tanggalSelesai,
-  };
+  return { tanggalMulai, tanggalSelesai };
 }
 
 /** Menghasilkan batas akhir eksklusif agar seluruh transaksi pada tanggal akhir ikut terambil. */
@@ -1595,8 +1613,59 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
 
+    // Ambil periode OPEN yang belum ditutup sebagai periode default laporan.
+    const { data: openPeriodData, error: openPeriodError } = await db
+      .from("periode")
+      .select(
+        `
+        id_periode,
+        nama_periode,
+        status,
+        tanggal_mulai,
+        tanggal_selesai,
+        is_closed
+        `,
+      )
+      .eq("status", "OPEN")
+      .eq("is_closed", false)
+      .order("tanggal_mulai", { ascending: false })
+      .limit(1);
+
+    if (openPeriodError) {
+      return NextResponse.json(
+        { error: `Gagal mengambil periode OPEN: ${openPeriodError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const openPeriods = (openPeriodData ?? []) as PeriodeReportRow[];
+    const openPeriod = openPeriods[0];
+
+    if (!openPeriod) {
+      return NextResponse.json(
+        {
+          error:
+            "Periode OPEN tidak ditemukan. Laporan Laba Rugi tidak dapat menentukan rentang tanggal.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(openPeriod.tanggal_mulai) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(openPeriod.tanggal_selesai)
+    ) {
+      return NextResponse.json(
+        {
+          error: `Tanggal pada periode OPEN ${openPeriod.nama_periode} tidak valid.`,
+        },
+        { status: 422 },
+      );
+    }
+
     const { tanggalMulai, tanggalSelesai } = getReportDateRange(
       url.searchParams,
+      openPeriod,
     );
 
     if (tanggalMulai > tanggalSelesai) {
@@ -1817,7 +1886,11 @@ export async function GET(request: Request): Promise<Response> {
 
     const validJournalIds = new Set<number>(
       jurnalRows
-        .filter((row): boolean => validPeriodeIds.has(Number(row.id_periode)))
+        .filter(
+          (row): boolean =>
+            validPeriodeIds.has(Number(row.id_periode)) &&
+            Number(row.id_periode) === Number(openPeriod.id_periode),
+        )
         .map((row): number => Number(row.id_jurnal)),
     );
 
@@ -1862,7 +1935,214 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     /* =====================================================
-       5. BENTUK DETAIL LAPORAN
+       5. SUMBER PENDAPATAN MENGIKUTI BUKU BESAR PER AKUN
+
+       Buku Besar Per Akun mengambil pendapatan dari:
+       public.v_buku_besar_pendapatan_usaha_per_akun
+
+       Laba Rugi menggunakan view yang sama, bukan menebak nama
+       keterangan jurnal atau membaca ulang saldo dari tabel berbeda.
+       Baris dibatasi tanggal dan periode laporan, lalu diagregasi
+       per id_coa dengan saldo normal pendapatan = kredit - debit.
+
+       Baris pendapatan operasional dari view Laba Rugi utama diganti
+       oleh hasil Buku Besar Per Akun agar tidak dihitung dua kali.
+       View sumber adalah view khusus jurnal POSTED. Tidak ada
+       INSERT, UPDATE, DELETE, atau perubahan jurnal.
+       ===================================================== */
+
+    const REVENUE_LEDGER_PAGE_SIZE = 1000;
+    let revenueLedgerOffset = 0;
+    const revenueLedgerRows: RevenueLedgerViewRow[] = [];
+
+    while (true) {
+      const { data: revenueLedgerData, error: revenueLedgerError } = await db
+        .from("v_buku_besar_pendapatan_usaha_per_akun")
+        .select("*")
+        .gte("tanggal", tanggalMulai)
+        .lt("tanggal", getNextDate(tanggalSelesai))
+        .order("tanggal", { ascending: true })
+        .order("id_jurnal", { ascending: true })
+        .order("id_detail", { ascending: true })
+        .range(
+          revenueLedgerOffset,
+          revenueLedgerOffset + REVENUE_LEDGER_PAGE_SIZE - 1,
+        );
+
+      if (revenueLedgerError) {
+        return NextResponse.json(
+          {
+            error: `Gagal mengambil Buku Besar Pendapatan Usaha Per Akun: ${revenueLedgerError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      const pageRows = (revenueLedgerData ?? []) as RevenueLedgerViewRow[];
+
+      for (const row of pageRows) {
+        const rowPeriodId =
+          row.id_periode === null || row.id_periode === undefined
+            ? null
+            : Number(row.id_periode);
+
+        const postedByBoolean =
+          typeof row.is_posted === "boolean" ? row.is_posted : null;
+        const postedByStatus =
+          typeof row.status === "string" && row.status.trim().length > 0
+            ? row.status.trim().toUpperCase() === "POSTED"
+            : null;
+
+        if (postedByBoolean === false || postedByStatus === false) {
+          continue;
+        }
+
+        if (
+          rowPeriodId !== null &&
+          Number.isFinite(rowPeriodId) &&
+          rowPeriodId !== Number(openPeriod.id_periode)
+        ) {
+          continue;
+        }
+
+        const idJurnal = Number(row.id_jurnal);
+        const idDetail = Number(row.id_detail);
+        const idCoa = Number(row.id_coa);
+
+        if (
+          !Number.isInteger(idJurnal) ||
+          idJurnal <= 0 ||
+          !Number.isInteger(idDetail) ||
+          idDetail <= 0 ||
+          !Number.isInteger(idCoa) ||
+          idCoa <= 0 ||
+          !row.kode_coa ||
+          !row.nama_coa
+        ) {
+          console.warn(
+            "LABA RUGI: baris Buku Besar Pendapatan Per Akun dilewati karena identitas tidak lengkap.",
+            {
+              id_jurnal: row.id_jurnal,
+              id_detail: row.id_detail,
+              id_coa: row.id_coa,
+            },
+          );
+          continue;
+        }
+
+        revenueLedgerRows.push(row);
+      }
+
+      if (pageRows.length < REVENUE_LEDGER_PAGE_SIZE) {
+        break;
+      }
+
+      revenueLedgerOffset += REVENUE_LEDGER_PAGE_SIZE;
+    }
+
+    const revenueCoaIds = new Set<number>();
+    const revenueRowsFromLedger: LabaRugiViewRow[] = [];
+
+    for (const row of revenueLedgerRows) {
+      const idJurnal = Number(row.id_jurnal);
+      const idDetail = Number(row.id_detail);
+      const idCoa = Number(row.id_coa);
+
+      // View Buku Besar Pendapatan Usaha adalah sumber akun pendapatan.
+      // Saldo berjalan tidak dipakai; yang dihitung hanya mutasi periode.
+      const debit = toNumber(row.debit);
+      const kredit = toNumber(row.kredit);
+      const nilaiPendapatan = kredit - debit;
+
+      revenueCoaIds.add(idCoa);
+
+      revenueRowsFromLedger.push({
+        id_jurnal: idJurnal,
+        tanggal: row.tanggal,
+        no_bukti: row.no_bukti ?? "",
+        sumber: row.sumber,
+        modul: null,
+        ref_id: null,
+        id_detail: idDetail,
+        id_coa: idCoa,
+        kode_coa: row.kode_coa ?? "",
+        nama_coa: row.nama_coa ?? "",
+        tipe_coa: row.tipe_coa ?? "PENDAPATAN",
+        kategori_laporan: "PENDAPATAN",
+        sub_kategori: "OPERASIONAL",
+        kelompok_utama: "PENDAPATAN_OPERASIONAL",
+        kelompok_detail: "PENDAPATAN_PROYEK",
+        debit: row.debit,
+        kredit: row.kredit,
+        nilai_laba_rugi: nilaiPendapatan,
+        kelompok_laba_rugi: "PENDAPATAN_OPERASIONAL",
+      });
+
+      if (!journalMap.has(idJurnal)) {
+        journalMap.set(idJurnal, {
+          id_jurnal: idJurnal,
+          tanggal: row.tanggal,
+          no_bukti: row.no_bukti ?? "",
+          keterangan: row.keterangan ?? "",
+          sumber: row.sumber,
+          modul: null,
+          ref_id: null,
+          id_periode:
+            row.id_periode === null || row.id_periode === undefined
+              ? Number(openPeriod.id_periode)
+              : Number(row.id_periode),
+        });
+      }
+    }
+
+    // Pertahankan seluruh kelompok lain dari view Laba Rugi.
+    // Pendapatan operasional diganti seluruhnya dengan view Buku Besar
+    // Per Akun agar satu detail tidak dihitung dari dua sumber.
+    // Hapus berdasarkan id_coa, bukan kelompok_utama. Sebagian COA
+    // pendapatan pada view Laba Rugi lama masih berlabel LAINNYA;
+    // jika dipertahankan, aggregateCoaRows akan memakai klasifikasi lama
+    // saat menemukan id_coa yang sama dan total Pendapatan Operasional
+    // tetap menjadi 0 meskipun nominal dari Buku Besar sudah terbaca.
+    const nonOperationalRevenueRows = reportViewRows.filter(
+      (row): boolean => !revenueCoaIds.has(Number(row.id_coa)),
+    );
+
+    const effectiveReportViewRows: LabaRugiViewRow[] = [
+      ...nonOperationalRevenueRows,
+      ...revenueRowsFromLedger,
+    ];
+
+    const openingRevenueRows = revenueLedgerRows.filter(
+      (row): boolean =>
+        normalizeText(row.keterangan).includes("SALDO AWAL") &&
+        /^40\.100\./.test(String(row.kode_coa ?? "").trim()),
+    );
+
+    const openingRevenueTotal = openingRevenueRows.reduce(
+      (total, row): number =>
+        total + toNumber(row.kredit) - toNumber(row.debit),
+      0,
+    );
+
+    console.info(
+      "LABA RUGI: pendapatan direkonsiliasi dari Buku Besar Pendapatan Usaha Per Akun.",
+      {
+        sumber: "v_buku_besar_pendapatan_usaha_per_akun",
+        jumlahBarisPendapatanPerAkun: revenueRowsFromLedger.length,
+        jumlahAkunPendapatan: new Set(
+          revenueRowsFromLedger.map((row) => row.id_coa),
+        ).size,
+        jumlahBarisSaldoAwalPendapatan: openingRevenueRows.length,
+        totalSaldoAwalPendapatan: openingRevenueTotal,
+        totalMutasiPendapatanPeriode: revenueRowsFromLedger.reduce(
+          (total, row): number => total + toNumber(row.nilai_laba_rugi),
+          0,
+        ),
+      },
+    );
+
+    /* =====================================================
+       6. BENTUK DETAIL LAPORAN
 
        Struktur detail tetap dipertahankan supaya:
        - detail COA Excel tetap berjalan
@@ -1874,7 +2154,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const detailRows: LabaRugiDetailRow[] = [];
 
-    for (const row of reportViewRows) {
+    for (const row of effectiveReportViewRows) {
       const journal = journalMap.get(Number(row.id_jurnal));
 
       if (!journal) {
@@ -1926,7 +2206,7 @@ export async function GET(request: Request): Promise<Response> {
        langsung dari database.
        ===================================================== */
 
-    const coaRows = aggregateCoaRows(reportViewRows);
+    const coaRows = aggregateCoaRows(effectiveReportViewRows);
 
     const unclassifiedRows = coaRows.filter(
       (row): boolean => normalizeText(row.kelompok_laba_rugi) === "LAINNYA",
@@ -2000,16 +2280,9 @@ export async function GET(request: Request): Promise<Response> {
     const assetRows = await getAssetData();
     const assetSummary = summarizeAssetData(assetRows);
 
-    if (assetRows.length === 0) {
-      return NextResponse.json(
-        {
-          error: "Data aset tidak ditemukan pada public.aset.",
-        },
-        {
-          status: 404,
-        },
-      );
-    }
+    // Data aset bersifat pendukung. Laporan Laba Rugi tetap dapat
+    // ditampilkan dan diekspor meskipun master aset belum memiliki baris.
+    // Beban penyusutan tetap hanya berasal dari jurnal posted pada view.
 
     /* =====================================================
        10. SECTION
@@ -2055,13 +2328,14 @@ export async function GET(request: Request): Promise<Response> {
 
     /*
      * DASAR LABA RUGI UTAMA:
-     * Pendapatan operasional berasal dari jurnal posted dan klasifikasi
-     * public.v_laba_rugi_report_detail, bukan dari nilai_bersih modul proyek.
+     * Pendapatan operasional berasal dari jurnal POSTED pada view.
+     * Untuk jurnal "Saldo Awal Pendapatan Usaha" pada akun 40.100.xx.xx,
+     * nilai pendapatan di laporan menggunakan kredit - debit agar saldo
+     * awal 16 akun tetap masuk ke Pendapatan Januari.
      *
-     * public.pendapatan_proyek.nilai_bersih tetap ditampilkan di sheet
-     * pendukung "Pendapatan Proyek" saja. Dengan demikian angka bersih
-     * proyek tidak menggantikan pendapatan bruto jurnal dan tidak tercampur
-     * dengan beban yang bersumber dari jurnal.
+     * public.pendapatan_proyek.nilai_bersih tetap ditampilkan pada sheet
+     * pendukung "Pendapatan Proyek" saja. Nilai tersebut tidak menggantikan
+     * pendapatan bruto jurnal dan tidak ditambahkan lagi ke total pendapatan.
      *
      * Tidak ada jurnal atau nominal database yang diubah oleh API ini.
      */
@@ -2083,7 +2357,7 @@ export async function GET(request: Request): Promise<Response> {
     const totalPendapatanFinal = pendapatanProyekJurnal;
 
     console.info(
-      "LABA RUGI: pendapatan utama bersumber dari public.v_laba_rugi_report_detail; pendapatan bersih proyek hanya untuk rincian pendukung.",
+      "LABA RUGI: pendapatan utama bersumber dari Buku Besar Pendapatan Usaha Per Akun; pendapatan bersih proyek hanya untuk rincian pendukung.",
       {
         pendapatanOperasionalJurnal: totalPendapatanFinal,
         penghasilanLainJurnal: sections.penghasilanLain.total,
@@ -2144,7 +2418,84 @@ export async function GET(request: Request): Promise<Response> {
     };
 
     /* =====================================================
-       11. EXCEL WORKBOOK
+       11. VIEW JSON
+       GET /api/report/laba-rugi?mode=view
+       Nilai dan klasifikasi tetap berasal dari view database.
+       Tidak ada perubahan jurnal atau data database.
+       ===================================================== */
+
+    const mode = normalizeText(url.searchParams.get("mode"));
+
+    if (mode === "VIEW" || mode === "PREVIEW") {
+      return NextResponse.json(
+        {
+          success: true,
+          report: "LABA_RUGI",
+          company: COMPANY_NAME,
+          section: REPORT_SECTION,
+          periode: {
+            id_periode: openPeriod.id_periode,
+            nama_periode: openPeriod.nama_periode,
+            status: openPeriod.status,
+            tanggal_mulai: tanggalMulai,
+            tanggal_selesai: tanggalSelesai,
+          },
+          generated_at: new Date().toISOString(),
+          currency: "IDR",
+          totals,
+          sections: {
+            pendapatan: sections.pendapatanProyek,
+            penghasilan_lain: sections.penghasilanLain,
+            biaya_penjualan: sections.biayaPenjualan,
+            beban_administratif: sections.bebanAdministratif,
+            beban_lain: sections.bebanLain,
+            beban_pajak_penghasilan: sections.pajakPenghasilan,
+          },
+          pendapatan_proyek: {
+            rows: pendapatanProyekRows,
+            total_bruto: totalPendapatanBrutoProyek,
+            total_pajak: totalPajakPendapatanProyek,
+            total_bersih: totalPendapatanBersih,
+          },
+          aset: {
+            rows: assetRows,
+            summary: assetSummary,
+            catatan:
+              "Data aset bersifat pendukung. Beban penyusutan pada Laba Rugi hanya berasal dari jurnal posted.",
+          },
+          metadata: {
+            jumlah_jurnal: new Set(detailRows.map((row) => row.id_jurnal)).size,
+            jumlah_detail_jurnal: detailRows.length,
+            jumlah_coa: coaRows.length,
+            jumlah_baris_saldo_awal_pendapatan: effectiveReportViewRows.filter(
+              (row): boolean => {
+                const journal = journalMap.get(Number(row.id_jurnal));
+                return (
+                  journal !== undefined &&
+                  normalizeText(journal.keterangan).includes("SALDO AWAL") &&
+                  normalizeText(row.tipe_coa) === "PENDAPATAN" &&
+                  /^40\\.100\\./.test(String(row.kode_coa ?? "").trim())
+                );
+              },
+            ).length,
+            total_saldo_awal_pendapatan: openingRevenueTotal,
+            sumber_nilai:
+              "v_buku_besar_pendapatan_usaha_per_akun + view Laba Rugi untuk kelompok lainnya",
+            status_jurnal: "POSTED",
+          },
+        },
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store, max-age=0",
+          },
+        },
+      );
+    }
+
+    /* =====================================================
+       12. EXCEL WORKBOOK / EXPORT
+       GET /api/report/laba-rugi (default) atau ?mode=export
        ===================================================== */
 
     const workbook = new ExcelJS.Workbook();

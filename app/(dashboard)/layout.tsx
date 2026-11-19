@@ -381,6 +381,33 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
+
+  async function handleLogout(): Promise<void> {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("Logout gagal. Silakan coba kembali.");
+      }
+
+      window.location.replace("/login");
+    } catch (error) {
+      console.error("LOGOUT ERROR:", error);
+
+      setIsLoggingOut(false);
+
+      window.alert("Logout gagal. Periksa koneksi dan coba kembali.");
+    }
+  }
 
   return (
     <ToastProvider>
@@ -497,9 +524,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 {currentUserRole}
               </div>
 
-              <button className="flex gap-1 text-red-500">
-                <LogOut className="w-5 h-5" />
-                Logout
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Logout dari aplikasi"
+              >
+                <LogOut className="h-4 w-4" />
+                {isLoggingOut ? "Sedang Logout..." : "Logout"}
               </button>
             </div>
           </header>
